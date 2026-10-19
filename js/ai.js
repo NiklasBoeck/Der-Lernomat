@@ -33,6 +33,9 @@ export const sharedAI = () => !!SHARED_AI_URL;
 // Nur echte API-Schlüssel (sk-ant-api…) gelten als eigener Schlüssel; alles andere würde den gemeinsamen Zugang blockieren.
 const ownKey = () => { const k = getSettings().apiKey; return /^sk-ant-api/.test(k) ? k : ''; };
 export const hasKey = () => !!ownKey() || sharedAI();
+// Ohne eigenen Schlüssel läuft alles über den gemeinsamen Zugang, immer mit dem günstigen Haiku.
+export const sharedMode = () => !ownKey() && sharedAI();
+const SHARED_MODEL = 'claude-haiku-5-5';
 
 let sdkPromise;
 let usingShared = false;
@@ -97,7 +100,7 @@ Wenn du dich auf die Unterlagen beziehst, belege deine Aussagen mit Zitaten dara
 Bei Fragen wie „Wo finde ich …?“ nenne Datei und Seite (bzw. Abschnitt) und zitiere die passende Stelle.`;
 
 function baseParams(maxTokens, effort, system = SYSTEM) {
-  const { model } = getSettings();
+  const model = sharedMode() ? SHARED_MODEL : getSettings().model;
   const p = { model, max_tokens: maxTokens, system, output_config: { effort } };
   // Serverseitiger Ersatz, falls ein Sicherheitsfilter fälschlich ablehnt (nicht bei Haiku).
   if (!model.startsWith('claude-haiku')) {

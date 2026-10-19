@@ -1036,13 +1036,13 @@ async function viewFile({ id, page, q, char }, alive) {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 7</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 8</p></section>
     <div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🧠 Deine KI</h2>
       ${AI.sharedAI() ? `<div class="notice" style="margin-bottom:12px">${icon('check')}<div>Die KI ist schon eingerichtet und für dich kostenlos (mit Tageslimit). Einen eigenen Schlüssel brauchst du nur, wenn du mehr nutzen willst.</div></div>` : ''}
       <p class="muted" style="margin-top:0;font-size:15px">Der Lernomat nutzt Claude von Anthropic. ${AI.sharedAI() ? 'Optional mit eigenem' : 'Du brauchst einen eigenen'} API-Schlüssel: auf <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> anmelden, Guthaben aufladen und unter „API Keys“ einen Schlüssel erstellen. Er wird nur auf diesem Gerät gespeichert.</p>
       <div class="field"><label for="key">API-Schlüssel</label><input class="input" id="key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(s.apiKey)}"></div>
-      <div class="field"><label for="model">Modell</label><select class="input" id="model">${AI.MODELS.map(m => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${m.name} – ${m.note}</option>`).join('')}</select></div>
+      <div class="field"><label for="model">Modell</label><select class="input" id="model" ${AI.sharedMode() ? 'disabled' : ''}>${AI.sharedMode() ? '<option>Claude Haiku 5.5 – gemeinsamer Zugang</option>' : AI.MODELS.map(m => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${m.name} – ${m.note}</option>`).join('')}</select>${AI.sharedMode() ? '<p class="muted" style="font-size:13px;margin:6px 0 0">Mit dem gemeinsamen Zugang wird immer das günstige Modell Haiku genutzt. Andere Modelle gibt es nur mit eigenem Schlüssel.</p>' : ''}</div>
       <div class="btn-row"><button class="btn primary" data-act="saveKey">Speichern</button><button class="btn" data-act="test">Verbindung testen</button></div>
     </div>
     <div class="card mt">
@@ -1064,7 +1064,7 @@ async function viewSettings() {
     <p class="muted center" style="font-size:13px;margin-top:24px">Der Lernomat · Version 1.0</p>
   </div>`;
   app.querySelector('#sound').addEventListener('change', e => { setSoundEnabled(e.target.checked); if (e.target.checked) unlock().then(() => sfx('good')); });
-  const save = () => AI.saveSettings({ apiKey: app.querySelector('#key').value, model: app.querySelector('#model').value });
+  const save = () => AI.saveSettings({ apiKey: app.querySelector('#key').value, model: app.querySelector('#model').disabled ? undefined : app.querySelector('#model').value });
   app.querySelector('#model').addEventListener('change', save);
   actions = {
     back: () => back(),

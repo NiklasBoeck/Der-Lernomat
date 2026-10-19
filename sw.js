@@ -1,5 +1,5 @@
 // Service Worker: macht den Lernomat offline nutzbar.
-const VERSION = 'lernomat-v7';
+const VERSION = 'lernomat-v8';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/vendor/anthropic-sdk-0.131.0.min.js', 'js/vendor/jszip-3.10.1.min.js',
