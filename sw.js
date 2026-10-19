@@ -1,5 +1,5 @@
 // Service Worker: macht den Lernomat offline nutzbar.
-const VERSION = 'lernomat-v5';
+const VERSION = 'lernomat-v6';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/vendor/anthropic-sdk-0.131.0.min.js', 'js/vendor/jszip-3.10.1.min.js',
@@ -32,8 +32,8 @@ self.addEventListener('fetch', e => {
     return;
   }
   if (url.origin !== location.origin) return;
-  // Eigene Dateien: erst Netz (für Updates), bei Offline aus dem Cache.
-  e.respondWith(fetch(req).then(res => {
+  // Eigene Dateien: erst Netz (immer frisch prüfen, damit Updates sofort ankommen), bei Offline aus dem Cache.
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then(res => {
     if (res.ok) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(req, copy)); }
     return res;
   }).catch(() => caches.match(req).then(hit => hit || caches.match('index.html'))));
