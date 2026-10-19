@@ -1021,7 +1021,8 @@ async function viewSettings() {
     <section class="hero"><h1>Einstellungen</h1></section>
     <div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🧠 Deine KI</h2>
-      <p class="muted" style="margin-top:0;font-size:15px">Der Lernomat nutzt Claude von Anthropic. Du brauchst einen eigenen API-Schlüssel: auf <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> anmelden, Guthaben aufladen und unter „API Keys“ einen Schlüssel erstellen. Er wird nur auf diesem Gerät gespeichert.</p>
+      ${AI.sharedAI() ? `<div class="notice" style="margin-bottom:12px">${icon('check')}<div>Die KI ist schon eingerichtet und für dich kostenlos (mit Tageslimit). Einen eigenen Schlüssel brauchst du nur, wenn du mehr nutzen willst.</div></div>` : ''}
+      <p class="muted" style="margin-top:0;font-size:15px">Der Lernomat nutzt Claude von Anthropic. ${AI.sharedAI() ? 'Optional mit eigenem' : 'Du brauchst einen eigenen'} API-Schlüssel: auf <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> anmelden, Guthaben aufladen und unter „API Keys“ einen Schlüssel erstellen. Er wird nur auf diesem Gerät gespeichert.</p>
       <div class="field"><label for="key">API-Schlüssel</label><input class="input" id="key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(s.apiKey)}"></div>
       <div class="field"><label for="model">Modell</label><select class="input" id="model">${AI.MODELS.map(m => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${m.name} – ${m.note}</option>`).join('')}</select></div>
       <div class="btn-row"><button class="btn primary" data-act="saveKey">Speichern</button><button class="btn" data-act="test">Verbindung testen</button></div>

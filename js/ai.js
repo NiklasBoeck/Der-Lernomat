@@ -1,5 +1,7 @@
 // Die KI des Lernomats: Anbindung an die Claude API mit dem eigenen API-Schlüssel.
 // Offizielles Anthropic-SDK, lokal gebündelt (funktioniert dadurch auch ohne CDN).
+import { SHARED_AI_URL } from './config.js';
+
 const SDK_URL = './vendor/anthropic-sdk-0.131.0.min.js';
 
 export const MODELS = [
@@ -27,11 +29,22 @@ export function saveSettings({ apiKey, model }) {
   if (apiKey !== undefined) localStorage.setItem('lernomat.apiKey', apiKey.trim());
   if (model !== undefined) localStorage.setItem('lernomat.model', model);
 }
-export const hasKey = () => !!getSettings().apiKey;
+export const sharedAI = () => !!SHARED_AI_URL;
+export const hasKey = () => !!getSettings().apiKey || sharedAI();
 
 let sdkPromise;
 async function client() {
   const { apiKey } = getSettings();
+  if (!apiKey && sharedAI()) {
+    // Gemeinsamer Zugang: der echte Schlüssel liegt nur auf dem Server.
+    sdkPromise ||= import(SDK_URL).catch(e => { sdkPromise = null; throw e; });
+    let m;
+    try { m = await sdkPromise; } catch {
+      throw new AIError('Die KI konnte nicht geladen werden. Bist du mit dem Internet verbunden?', 'offline');
+    }
+    const A = m.default || m.Anthropic;
+    return new A({ apiKey: 'gemeinsam', baseURL: SHARED_AI_URL.replace(/\/$/, ''), dangerouslyAllowBrowser: true, maxRetries: 1 });
+  }
   if (!apiKey) throw new AIError('Bitte hinterlege zuerst deinen API-Schlüssel in den Einstellungen.', 'nokey');
   sdkPromise ||= import(SDK_URL).catch(e => { sdkPromise = null; throw e; });
   let mod;
@@ -52,6 +65,7 @@ function friendly(err) {
   const raw = String(err?.message || err);
   if (status === 401) return new AIError('Der API-Schlüssel ist ungültig. Prüfe ihn in den Einstellungen.', 'auth');
   if (status === 403) return new AIError('Dein API-Schlüssel hat keinen Zugriff auf dieses Modell.', 'auth');
+  if (/Tageslimit/.test(raw)) return new AIError('Für heute ist das KI-Limit erreicht. Morgen geht es weiter, oder trage in den Einstellungen einen eigenen API-Schlüssel ein.', 'rate');
   if (status === 429) return new AIError('Gerade zu viele Anfragen oder Guthaben aufgebraucht. Versuch es gleich nochmal.', 'rate');
   if (status === 413 || /too large|exceeds|prompt is too long/i.test(raw)) return new AIError('Die ausgewählten Dateien sind zu groß. Wähle weniger Dateien aus.', 'size');
   if (status === 529 || status >= 500) return new AIError('Die KI ist gerade überlastet. Versuch es in einem Moment nochmal.', 'server');

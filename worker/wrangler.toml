@@ -1,0 +1,14 @@
+name = "lernomat-ki"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://niklasboeck.github.io"
+DAILY_LIMIT = "40"
+ALLOWED_MODELS = "claude-haiku-5-5"
+DEFAULT_MODEL = "claude-haiku-5-5"
+
+# Nach "npx wrangler kv namespace create LIMITS" die ausgegebene id hier eintragen:
+[[kv_namespaces]]
+binding = "LIMITS"
+id = "HIER_KV_ID_EINTRAGEN"
