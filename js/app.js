@@ -1033,10 +1033,21 @@ async function viewFile({ id, page, q, char }, alive) {
 }
 
 // ===== Einstellungen =====
+function centText(usd) {
+  const c = usd * 100;
+  return (c < 0.1 ? '< 0,1' : c.toFixed(c < 10 ? 1 : 0).replace('.', ',')) + ' Cent';
+}
+function usageLine() {
+  const u = AI.usageToday();
+  if (!u) return '';
+  const name = AI.MODELS.find(m => m.id === u.last?.model)?.name || u.last?.model || '';
+  return `<p class="muted" style="font-size:13px;margin:12px 0 0">Heute: ${u.count} KI-Anfragen, ca. ${centText(u.usd)} (US-Cent). Letzte Anfrage: ca. ${centText(u.last.usd)} mit ${esc(name)}.</p>`;
+}
+
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 8</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 9</p></section>
     <div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🧠 Deine KI</h2>
       ${AI.sharedAI() ? `<div class="notice" style="margin-bottom:12px">${icon('check')}<div>Die KI ist schon eingerichtet und für dich kostenlos (mit Tageslimit). Einen eigenen Schlüssel brauchst du nur, wenn du mehr nutzen willst.</div></div>` : ''}
@@ -1044,6 +1055,7 @@ async function viewSettings() {
       <div class="field"><label for="key">API-Schlüssel</label><input class="input" id="key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(s.apiKey)}"></div>
       <div class="field"><label for="model">Modell</label><select class="input" id="model" ${AI.sharedMode() ? 'disabled' : ''}>${AI.sharedMode() ? '<option>Claude Haiku 5.5 – gemeinsamer Zugang</option>' : AI.MODELS.map(m => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${m.name} – ${m.note}</option>`).join('')}</select>${AI.sharedMode() ? '<p class="muted" style="font-size:13px;margin:6px 0 0">Mit dem gemeinsamen Zugang wird immer das günstige Modell Haiku genutzt. Andere Modelle gibt es nur mit eigenem Schlüssel.</p>' : ''}</div>
       <div class="btn-row"><button class="btn primary" data-act="saveKey">Speichern</button><button class="btn" data-act="test">Verbindung testen</button></div>
+      ${usageLine()}
     </div>
     <div class="card mt">
       <h2 style="font-size:18px;margin-bottom:10px">🌗 Design</h2>

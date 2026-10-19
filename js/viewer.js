@@ -4,7 +4,7 @@ import { esc } from './markdown.js';
 const PDFJS = './vendor/pdfjs-4.10.38.min.mjs';
 const WORKER = new URL('./vendor/pdfjs-4.10.38.worker.min.mjs', import.meta.url).href;
 let pdfjsPromise;
-function loadPdfjs() {
+export function loadPdfjs() {
   pdfjsPromise ||= import(PDFJS).then(m => { m.GlobalWorkerOptions.workerSrc = WORKER; return m; });
   return pdfjsPromise;
 }

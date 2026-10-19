@@ -62,6 +62,38 @@ async function client() {
   return new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
 }
 
+// Preise in US-Dollar pro 1 Mio. Tokens (Eingabe, Ausgabe); Haiku kostet ab 100.000 Tokens Eingabe mehr.
+const PRICES = {
+  'claude-opus-5-5': [4, 20], 'claude-sonnet-5-5': [2, 10],
+  'claude-haiku-5-5': [0.1, 0.5, 0.5, 2.5],
+};
+export function costOf(model, u) {
+  const p = PRICES[model] || PRICES['claude-opus-5-5'];
+  const read = u.cache_read_input_tokens || 0, write = u.cache_creation_input_tokens || 0, inp = u.input_tokens || 0;
+  const big = p.length > 2 && inp + read + write > 100_000;
+  const [pi, po] = big ? [p[2], p[3]] : p;
+  return ((inp + write * 1.25 + read * 0.1) * pi + (u.output_tokens || 0) * po) / 1e6;
+}
+function recordUsage(msg) {
+  if (!msg?.usage) return;
+  const model = msg.model || '';
+  const usd = costOf(model, msg.usage);
+  const tokens = (msg.usage.input_tokens || 0) + (msg.usage.cache_read_input_tokens || 0) + (msg.usage.cache_creation_input_tokens || 0);
+  const day = new Date().toISOString().slice(0, 10);
+  let log = {};
+  try { log = JSON.parse(localStorage.getItem('lernomat.usage') || '{}'); } catch { /* neu anfangen */ }
+  if (log.day !== day) log = { day, usd: 0, count: 0 };
+  log.usd += usd; log.count += 1;
+  log.last = { model, usd, tokens };
+  try { localStorage.setItem('lernomat.usage', JSON.stringify(log)); } catch { /* egal */ }
+}
+export function usageToday() {
+  try {
+    const log = JSON.parse(localStorage.getItem('lernomat.usage') || '{}');
+    return log.day === new Date().toISOString().slice(0, 10) ? log : null;
+  } catch { return null; }
+}
+
 export class AIError extends Error {
   constructor(msg, code) { super(msg); this.code = code; }
 }
@@ -116,7 +148,9 @@ async function runStream(params, onText) {
     const stream = c.beta.messages.stream(p);
     let acc = '';
     if (onText) stream.on('text', delta => { acc += delta; onText(acc); });
-    return stream.finalMessage();
+    const msg = await stream.finalMessage();
+    recordUsage(msg);
+    return msg;
   };
   try {
     return await attempt(params);

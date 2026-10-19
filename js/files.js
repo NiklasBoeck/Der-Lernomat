@@ -1,5 +1,7 @@
 // Einlesen hochgeladener Dateien und Umwandeln in Bausteine für die KI.
-import { uid } from './db.js';
+import { uid, db } from './db.js';
+import { loadPdfjs } from './viewer.js';
+import { sharedMode } from './ai.js';
 
 export const CATEGORIES = ['Lernskript', 'Übungsklausur', 'Karteikarten', 'Zusammenfassung', 'Sonstiges'];
 export const ACCEPT = '.pdf,.txt,.md,.markdown,.csv,.json,.docx,.pptx,.rtf,image/*,application/pdf,text/plain';
@@ -123,11 +125,36 @@ export function blobToBase64(blob) {
   });
 }
 
+// Text jeder PDF-Seite (einmal ausgelesen, dann am Gerät gespeichert).
+async function pdfPages(f) {
+  if (Array.isArray(f.pages)) return f.pages;
+  const pdfjs = await loadPdfjs();
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(await f.blob.arrayBuffer()) }).promise;
+  const pages = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const tc = await (await doc.getPage(i)).getTextContent();
+    pages.push(tc.items.map(it => (it.str || '') + (it.hasEOL ? '\n' : ' ')).join('').replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n').trim());
+  }
+  doc.destroy();
+  f.pages = pages;
+  try { const rec = await db.get('files', f.id); if (rec) await db.put('files', { ...rec, pages }); } catch { /* nur Zwischenspeicher */ }
+  return pages;
+}
+
 // Wandelt die gewählten Dateien in Inhaltsblöcke für die Claude API um.
-export async function filesToBlocks(files) {
+// Beim gemeinsamen Zugang gehen PDFs als reiner Text (Seite für Seite) raus: viel günstiger als Seitenbilder.
+export async function filesToBlocks(files, { lean = sharedMode() } = {}) {
   const blocks = [];
   for (const f of files) {
     const title = `${f.name} (${f.category})`;
+    if (f.kind === 'pdf' && lean) {
+      const pages = await pdfPages(f).catch(() => null);
+      // Eingescannte PDFs haben kaum Text: dann doch das PDF selbst schicken.
+      if (pages?.length && pages.join('').length / pages.length >= 80) {
+        blocks.push({ type: 'document', title, source: { type: 'content', content: pages.map((t, i) => ({ type: 'text', text: `[Seite ${i + 1}]\n${t || '(kein Text auf dieser Seite)'}` })) } });
+        continue;
+      }
+    }
     if (f.kind === 'pdf') {
       blocks.push({ type: 'document', title, source: { type: 'base64', media_type: 'application/pdf', data: await blobToBase64(f.blob) } });
     } else if (f.kind === 'image') {

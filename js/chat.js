@@ -58,7 +58,8 @@ function toParts(blocks, files) {
     for (const c of b.citations) {
       const f = byTitle[c.document_title] || docs[c.document_index];
       if (!f) continue;
-      const page = c.type === 'page_location' ? c.start_page_number : null;
+      const page = c.type === 'page_location' ? c.start_page_number
+        : c.type === 'content_block_location' && f.kind === 'pdf' ? c.start_block_index + 1 : null;
       const id = f.id + ':' + (page ?? c.start_char_index ?? '');
       if (seen.has(id)) continue;
       seen.add(id);
