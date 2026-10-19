@@ -16,7 +16,8 @@ export default {
     const allowed = (env.ALLOWED_ORIGIN || '').split(',').map(s => s.trim()).filter(Boolean);
     const cors = {
       'access-control-allow-origin': allowed.includes(origin) ? origin : allowed[0] || '*',
-      'access-control-allow-headers': 'content-type, anthropic-version, anthropic-beta, x-api-key, anthropic-dangerous-direct-browser-access, x-stainless-arch, x-stainless-lang, x-stainless-os, x-stainless-package-version, x-stainless-retry-count, x-stainless-runtime, x-stainless-runtime-version, x-stainless-timeout',
+      // Alle Header erlauben, die der Browser anfragt (das SDK schickt je nach Version andere).
+      'access-control-allow-headers': request.headers.get('access-control-request-headers') || 'content-type, anthropic-version, anthropic-beta, x-api-key, anthropic-dangerous-direct-browser-access',
       'access-control-allow-methods': 'POST, OPTIONS',
       'access-control-max-age': '86400',
     };
@@ -25,6 +26,10 @@ export default {
     const url = new URL(request.url);
     if (request.method !== 'POST' || url.pathname !== '/v1/messages') return json(404, { type: 'error', error: { type: 'not_found_error', message: 'Nicht gefunden' } }, cors);
     if (allowed.length && !allowed.includes(origin)) return json(403, { type: 'error', error: { type: 'permission_error', message: 'Nur für den Lernomat freigegeben.' } }, cors);
+
+    // Klare Meldungen, falls bei Cloudflare etwas fehlt.
+    if (!env.ANTHROPIC_API_KEY) return json(500, { type: 'error', error: { type: 'api_error', message: 'Einrichtung: Bei Cloudflare fehlt das Secret ANTHROPIC_API_KEY.' } }, cors);
+    if (!env.LIMITS) return json(500, { type: 'error', error: { type: 'api_error', message: 'Einrichtung: Bei Cloudflare fehlt die KV-Verknüpfung LIMITS (Settings → Bindings).' } }, cors);
 
     // Tageslimit pro Person (nach IP-Adresse).
     const ip = request.headers.get('cf-connecting-ip') || 'unbekannt';

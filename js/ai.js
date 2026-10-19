@@ -30,12 +30,16 @@ export function saveSettings({ apiKey, model }) {
   if (model !== undefined) localStorage.setItem('lernomat.model', model);
 }
 export const sharedAI = () => !!SHARED_AI_URL;
-export const hasKey = () => !!getSettings().apiKey || sharedAI();
+// Nur echte API-Schlüssel (sk-ant-api…) gelten als eigener Schlüssel; alles andere würde den gemeinsamen Zugang blockieren.
+const ownKey = () => { const k = getSettings().apiKey; return /^sk-ant-api/.test(k) ? k : ''; };
+export const hasKey = () => !!ownKey() || sharedAI();
 
 let sdkPromise;
+let usingShared = false;
 async function client() {
-  const { apiKey } = getSettings();
-  if (!apiKey && sharedAI()) {
+  const apiKey = ownKey() || (sharedAI() ? '' : getSettings().apiKey);
+  usingShared = !apiKey && sharedAI();
+  if (usingShared) {
     // Gemeinsamer Zugang: der echte Schlüssel liegt nur auf dem Server.
     sdkPromise ||= import(SDK_URL).catch(e => { sdkPromise = null; throw e; });
     let m;
@@ -63,6 +67,12 @@ function friendly(err) {
   if (err instanceof AIError) return err;
   const status = err?.status;
   const raw = String(err?.message || err);
+  if (usingShared) {
+    if (status === 401) return new AIError('Der gemeinsame KI-Zugang ist noch nicht fertig: Bei Cloudflare fehlt der Schlüssel ANTHROPIC_API_KEY oder er ist ungültig.', 'auth');
+    if (status === 403 && /Lernomat/.test(raw)) return new AIError('Der gemeinsame KI-Zugang lehnt diese Adresse ab. Bei Cloudflare muss ALLOWED_ORIGIN genau https://niklasboeck.github.io sein.', 'auth');
+    if (/Einrichtung:/.test(raw)) return new AIError(raw.match(/Einrichtung:[^"]*/)[0], 'setup');
+    if (/fetch|network|Load failed|CORS/i.test(raw)) return new AIError('Der gemeinsame KI-Zugang antwortet nicht. Ist der Worker bei Cloudflare gespeichert und deployt?', 'offline');
+  }
   if (status === 401) return new AIError('Der API-Schlüssel ist ungültig. Prüfe ihn in den Einstellungen.', 'auth');
   if (status === 403) return new AIError('Dein API-Schlüssel hat keinen Zugriff auf dieses Modell.', 'auth');
   if (/Tageslimit/.test(raw)) return new AIError('Für heute ist das KI-Limit erreicht. Morgen geht es weiter, oder trage in den Einstellungen einen eigenen API-Schlüssel ein.', 'rate');
