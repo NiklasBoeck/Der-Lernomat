@@ -88,25 +88,43 @@ function viewSplash() {
     </div>`;
   const splash = document.getElementById('splash');
   const pill = document.getElementById('soundPill');
-  // Viele Browser erlauben Ton erst nach dem ersten Tippen.
-  if (audioUnlocked()) setTimeout(playIntro, 300);
-  else if (soundEnabled()) pill.hidden = false;
+  const hint = splash.querySelector('.tap-hint');
   let started = false;
-  const startSound = async () => {
+  let startedAt = 0;
+  // iPhone und Mac erlauben Ton erst nach dem ersten Tippen. Dann wartet der Startbildschirm darauf
+  // und spielt Melodie und Titel-Animation zusammen ab.
+  const begin = () => {
     if (started) return;
     started = true;
+    startedAt = Date.now();
+    splash.classList.remove('waiting');
     pill.hidden = true;
-    if (await unlock()) playIntro();
+    hint.textContent = 'Tippe auf den Titel, um loszulegen';
+    setTimeout(playIntro, 250);
   };
-  setTimeout(() => { if (audioUnlocked()) { started = true; pill.hidden = true; } }, 400);
-  splash.addEventListener('pointerdown', startSound);
-  document.getElementById('titleBtn').addEventListener('click', async () => {
-    await startSound();
+  const tryStart = async () => {
+    if (started) return;
+    await unlock();
+    begin();
+  };
+  if (!soundEnabled() || audioUnlocked()) begin();
+  else {
+    splash.classList.add('waiting');
+    hint.textContent = 'Tippe, um zu starten';
+    // Kurz warten: manche Browser geben Ton auch ohne Tippen frei.
+    setTimeout(() => { if (!started && audioUnlocked()) begin(); }, 350);
+  }
+  splash.addEventListener('touchend', tryStart);
+  splash.addEventListener('click', tryStart);
+  document.getElementById('titleBtn').addEventListener('click', e => {
+    // Der erste Tipp startet nur Melodie und Animation.
+    if (!started || Date.now() - startedAt < 700) return;
+    e.stopPropagation();
     splash.classList.add('leaving');
     setTimeout(() => go('home', {}, { replace: true }), 480);
   });
   const onKey = e => { if (e.key === 'Enter' || e.key === ' ') document.getElementById('titleBtn')?.click(); };
-  document.addEventListener('keydown', onKey, { once: true });
+  document.addEventListener('keydown', onKey);
   cleanups.push(() => document.removeEventListener('keydown', onKey));
 }
 

@@ -13,6 +13,8 @@ function ensure() {
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
+    // iPhone: Ton auch dann abspielen, wenn der Stummschalter an ist (Safari 16.4+).
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* älteres iOS */ }
     ctx = new AC();
     master = ctx.createGain();
     master.gain.value = 0.55;
@@ -28,12 +30,23 @@ export function audioUnlocked() {
   return !!c && c.state === 'running';
 }
 
+// Muss direkt in einem Tipp-/Klick-Ereignis aufgerufen werden (iOS gibt Ton erst dann frei).
 export async function unlock() {
   const c = ensure();
-  if (c && c.state !== 'running') {
+  if (!c) return false;
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch { /* egal */ }
+  // Ein stiller Mini-Ton schaltet den Ton auf älteren iPhones frei.
+  try {
+    const b = c.createBuffer(1, 1, 22050);
+    const src = c.createBufferSource();
+    src.buffer = b;
+    src.connect(c.destination);
+    src.start(0);
+  } catch { /* egal */ }
+  if (c.state !== 'running') {
     try { await c.resume(); } catch { /* ignorieren */ }
   }
-  return !!c && c.state === 'running';
+  return c.state === 'running';
 }
 
 const NOTE = { C: -9, D: -7, E: -5, F: -4, G: -2, A: 0, B: 2 };

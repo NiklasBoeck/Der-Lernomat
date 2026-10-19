@@ -531,3 +531,13 @@ textarea.input { min-height: 110px; resize: vertical; }
   .row select { max-width: 104px; font-size: 12px; padding: 4px 6px; }
   .row .icon-btn.plain { width: 34px; }
 }
+
+/* Startbildschirm wartet auf den ersten Tipp (nötig für Ton auf iPhone/Mac) */
+.splash.waiting .ch, .splash.waiting .logo-mark, .splash.waiting .subtitle { animation-play-state: paused; }
+.splash.waiting .tap-hint {
+  bottom: auto; top: 50%; transform: translateY(-50%);
+  font-size: 19px; font-weight: 600; color: var(--text);
+  padding: 14px 24px; border-radius: 999px; background: var(--surface); box-shadow: var(--shadow-lg);
+  opacity: 1; animation: pulse 2.4s ease-in-out infinite;
+}
+.splash.waiting .tap-hint::before { content: "▶"; color: var(--accent); margin-right: 4px; }
