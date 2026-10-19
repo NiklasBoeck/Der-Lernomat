@@ -28,6 +28,8 @@ const P = {
   play: '<path d="M6 4l14 8-14 8z"/>',
   phone: '<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M11 18h2"/>',
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+  sun: '<circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v2M12 20.5v2M4.6 4.6l1.4 1.4M18 18l1.4 1.4M1.5 12h2M20.5 12h2M4.6 19.4L6 18M18 6l1.4-1.4"/>',
+  moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
   edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
 };
 
@@ -98,3 +100,21 @@ export function shuffle(arr) {
   }
   return a;
 }
+
+// Hell/Dunkel: 'system' folgt der Einstellung von iPhone bzw. Mac.
+export function getTheme() {
+  try { return localStorage.getItem('lernomat.theme') || 'system'; } catch { return 'system'; }
+}
+export function applyTheme(t = getTheme()) {
+  const root = document.documentElement;
+  if (t === 'system') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+  const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.querySelectorAll('meta[name="theme-color"]').forEach(m => m.setAttribute('content', dark ? '#131417' : '#F6F4EF'));
+  root.style.colorScheme = dark ? 'dark' : 'light';
+  return dark;
+}
+export function setTheme(t) {
+  try { localStorage.setItem('lernomat.theme', t); } catch { /* egal */ }
+  applyTheme(t);
+}
+export const isDark = () => applyTheme();

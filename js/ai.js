@@ -67,9 +67,14 @@ function withCache(fileBlocks) {
   return blocks;
 }
 
-function baseParams(maxTokens, effort) {
+const CHAT_SYSTEM = SYSTEM + `
+Im Chat beantwortest du Fragen zum Lernstoff kurz und klar (lieber ein paar gut erklärte Sätze als lange Texte).
+Wenn du dich auf die Unterlagen beziehst, belege deine Aussagen mit Zitaten daraus: Die App zeigt zu jedem Zitat einen Link, der direkt zur Stelle im Skript springt.
+Bei Fragen wie „Wo finde ich …?“ nenne Datei und Seite (bzw. Abschnitt) und zitiere die passende Stelle.`;
+
+function baseParams(maxTokens, effort, system = SYSTEM) {
   const { model } = getSettings();
-  const p = { model, max_tokens: maxTokens, system: SYSTEM, output_config: { effort } };
+  const p = { model, max_tokens: maxTokens, system, output_config: { effort } };
   // Serverseitiger Ersatz, falls ein Sicherheitsfilter fälschlich ablehnt (nicht bei Haiku).
   if (!model.startsWith('claude-haiku')) {
     p.betas = ['server-side-fallback-2026-07-01'];
@@ -82,7 +87,8 @@ async function runStream(params, onText) {
   const c = await client();
   const attempt = async p => {
     const stream = c.beta.messages.stream(p);
-    if (onText) stream.on('text', (_delta, snapshot) => onText(snapshot));
+    let acc = '';
+    if (onText) stream.on('text', delta => { acc += delta; onText(acc); });
     return stream.finalMessage();
   };
   try {
@@ -134,17 +140,20 @@ export async function generateText({ fileBlocks = [], prompt, maxTokens = 32000,
 }
 
 // Chat mit Verlauf: Unterlagen stehen in der ersten Nachricht, damit sie zwischengespeichert werden.
+// Mit Zitaten (citations), damit die App zur Fundstelle im Skript springen kann.
 export async function chat({ fileBlocks = [], history, onText }) {
+  const docs = fileBlocks.map(b => (b.type === 'document' ? { ...b, citations: { enabled: true } } : b));
   const messages = history.map((m, i) => {
     if (i === 0 && m.role === 'user') {
-      return { role: 'user', content: [...withCache(fileBlocks), { type: 'text', text: m.content }] };
+      return { role: 'user', content: [...withCache(docs), { type: 'text', text: m.content }] };
     }
     return { role: m.role, content: m.content };
   });
-  const params = { ...baseParams(8000, 'low'), messages };
+  const params = { ...baseParams(8000, 'low', CHAT_SYSTEM), messages };
   const msg = await runStream(params, onText);
   checkStop(msg);
-  return textOf(msg);
+  // Textstücke mit ihren Fundstellen zurückgeben.
+  return msg.content.filter(b => b.type === 'text').map(b => ({ text: b.text, citations: b.citations || [] }));
 }
 
 export async function testConnection() {

@@ -1,6 +1,7 @@
 // Der Lernomat – Hauptlogik: Navigation und alle Bildschirme.
 import { db, uid, requestPersistence } from './db.js';
-import { icon, LOGO, toast, openModal, confirmDialog, relDate, shuffle } from './ui.js';
+import { icon, LOGO, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
+import { renderPdf, renderText } from './viewer.js';
 import { esc, renderMarkdown } from './markdown.js';
 import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled } from './audio.js';
 import { ingestFile, filesToBlocks, fileBadge, formatSize, totalSize, CATEGORIES, ACCEPT } from './files.js';
@@ -42,7 +43,7 @@ async function render(st) {
   cleanups = [];
   actions = {};
   window.scrollTo(0, 0);
-  const views = { home: viewHome, subject: viewSubject, builder: viewBuilder, set: viewSet, settings: viewSettings };
+  const views = { home: viewHome, subject: viewSubject, builder: viewBuilder, set: viewSet, settings: viewSettings, file: viewFile };
   showFab(st.view !== 'splash');
   setChatContext(null);
   try {
@@ -136,7 +137,7 @@ async function viewHome() {
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
   app.innerHTML = `<div class="screen">
-    ${topbar({ backTo: false, right: `<button class="icon-btn" data-act="settings" aria-label="Einstellungen">${icon('settings')}</button>` })}
+    ${topbar({ backTo: false, right: `<button class="icon-btn" data-act="theme" aria-label="Hell/Dunkel umschalten">${icon(applyTheme() ? 'sun' : 'moon')}</button><button class="icon-btn" data-act="settings" aria-label="Einstellungen">${icon('settings')}</button>` })}
     <section class="hero"><h1>${greeting()}</h1><p>Was möchtest du heute lernen?</p></section>
     ${!AI.hasKey() ? `<div class="notice" style="margin-bottom:16px">${icon('key')}<div><b>Verbinde deine KI.</b> Damit der Lernomat Zusammenfassungen, Karteikarten und Klausuren bauen kann, trage einmal deinen API-Schlüssel ein.<div class="mt" style="margin-top:10px"><button class="btn small primary" data-act="settings">Jetzt einrichten</button></div></div></div>` : ''}
     <div class="quick-actions">
@@ -166,6 +167,10 @@ async function viewHome() {
 
   actions = {
     settings: () => go('settings'),
+    theme: (_d, btn) => {
+      setTheme(applyTheme() ? 'light' : 'dark');
+      btn.innerHTML = icon(applyTheme() ? 'sun' : 'moon');
+    },
     open: d => go('subject', { id: d.id }),
     openSet: d => go('set', { id: d.id }),
     newSubject: () => subjectDialog(),
@@ -319,9 +324,8 @@ async function viewSubject({ id }) {
     <div class="section-title"><h2>Unterlagen</h2><button class="btn small" data-act="add">${icon('plus')} Hinzufügen</button></div>
     ${files.length ? `<div class="list">${files.map(f => `<div class="row">
         <span class="ico">${fileBadge(f)}</span>
-        <span class="main"><b>${esc(f.name)}</b><span>${formatSize(f.size)} · ${relDate(f.added)}</span></span>
+        <button class="main" data-act="viewFile" data-id="${f.id}" style="text-align:left"><b>${esc(f.name)}</b><span>Ansehen · ${formatSize(f.size)}</span></button>
         <select data-file="${f.id}" aria-label="Art der Datei">${CATEGORIES.map(c => `<option ${c === f.category ? 'selected' : ''}>${c}</option>`).join('')}</select>
-        <button class="icon-btn plain" data-act="viewFile" data-id="${f.id}" aria-label="Öffnen">${icon('summary')}</button>
         <button class="icon-btn plain" data-act="delFile" data-id="${f.id}" aria-label="Löschen" style="color:var(--bad)">${icon('trash')}</button>
       </div>`).join('')}</div>` : ''}
     <div class="dropzone" id="drop" data-act="add">${icon('upload')}<div><b>Dateien hierher ziehen</b> oder tippen zum Auswählen</div><small>PDF, Fotos, Word, PowerPoint, Text</small></div>
@@ -352,12 +356,7 @@ async function viewSubject({ id }) {
       go('builder', { subjectId: id, type: d.type });
     },
     openSet: d => go('set', { id: d.id }),
-    viewFile: async d => {
-      const f = await db.get('files', d.id);
-      const url = URL.createObjectURL(f.blob);
-      window.open(url, '_blank');
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-    },
+    viewFile: d => go('file', { id: d.id }),
     delFile: async d => {
       const f = files.find(x => x.id === d.id);
       if (await confirmDialog(`„${f.name}“ wird aus diesem Fach entfernt.`, { ok: 'Löschen', danger: true })) {
@@ -932,6 +931,89 @@ function viewPlan(set, subj) {
   };
 }
 
+// ===== Skript ansehen =====
+let fileCtl = null;
+let fileCtlId = null;
+
+// Öffnet eine Datei an einer bestimmten Stelle (z. B. aus einem Zitat der KI).
+function openFile(params) {
+  if (history.state?.view === 'file' && fileCtlId === params.id && fileCtl) {
+    fileCtl.jump(params);
+  } else {
+    go('file', params);
+  }
+}
+
+async function viewFile({ id, page, q, char }, alive) {
+  const f = await db.get('files', id);
+  if (!f) return go('home', {}, { replace: true });
+  const subj = await db.get('subjects', f.subjectId);
+  let pageInfo = '';
+  app.innerHTML = `<div class="screen viewer-screen">
+    ${topbar({ crumb: `${subj?.emoji || ''} ${esc(subj?.name || '')}`, right: `<button class="icon-btn" data-act="download" aria-label="Datei öffnen">${icon('share')}</button>` })}
+    <div class="viewer-head"><h2>${esc(f.name)}</h2><span class="muted" id="pageInfo"></span></div>
+    ${f.kind !== 'image' ? `<form class="viewer-search" id="vSearch"><input class="input" id="vTerm" type="search" placeholder="Im Skript suchen …" enterkeyhint="search"><button class="btn small" type="submit">Suchen</button></form>` : ''}
+    <div id="hitInfo" class="notice" hidden></div>
+    <div id="doc" class="doc-area"><div class="thinking"><div class="orb"></div><p>Skript wird geladen …</p></div></div>
+  </div>`;
+  const docEl = document.getElementById('doc');
+  const info = document.getElementById('pageInfo');
+  const hitInfo = document.getElementById('hitInfo');
+  const showHit = (ok, q2) => {
+    if (!q2) { hitInfo.hidden = true; return; }
+    hitInfo.hidden = false;
+    hitInfo.innerHTML = ok ? `${icon('sparkle')}<div>Gefunden: <i>„${esc(q2.length > 140 ? q2.slice(0, 140) + '…' : q2)}“</i></div>`
+      : `${icon('info')}<div>Die genaue Stelle konnte nicht markiert werden${page ? `, sie steht auf Seite ${page}` : ''}.</div>`;
+  };
+  setChatContext({
+    subjectId: f.subjectId, label: subj?.name,
+    detail: () => `beim Lesen der Datei „${f.name}“${pageInfo ? `, gerade auf ${pageInfo}` : ''}`,
+    suggestions: ['Wo im Skript finde ich …', 'Erklär mir die Seite, die ich gerade lese.', 'Was ist in diesem Skript am wichtigsten?', 'Fass dieses Kapitel kurz zusammen.'],
+  });
+  actions = {
+    back: () => back({ view: 'subject', params: { id: f.subjectId } }),
+    download: () => {
+      const url = URL.createObjectURL(f.blob);
+      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    },
+  };
+  let ctl;
+  try {
+    if (f.kind === 'pdf') {
+      ctl = await renderPdf(docEl, f.blob, { onPage: (n, total) => { pageInfo = `Seite ${n}`; info.textContent = `Seite ${n} von ${total}`; } });
+    } else if (f.kind === 'image') {
+      const url = URL.createObjectURL(f.blob);
+      docEl.innerHTML = `<img class="doc-img" src="${url}" alt="${esc(f.name)}">`;
+      cleanups.push(() => URL.revokeObjectURL(url));
+      ctl = { goTo: () => false, search: () => false, destroy() {} };
+    } else {
+      docEl.innerHTML = '';
+      if (/\.(docx|pptx)$/i.test(f.name)) info.textContent = 'Textansicht';
+      ctl = renderText(docEl, f.text || '');
+    }
+  } catch (err) {
+    docEl.innerHTML = `<div class="empty">😕 Die Datei konnte nicht angezeigt werden.<br><small>${esc(err.message)}</small><div class="mt"><button class="btn" data-act="download">Mit anderer App öffnen</button></div></div>`;
+    return;
+  }
+  if (!alive()) { ctl.destroy(); return; }
+  fileCtlId = id;
+  const jump = async p => {
+    const ok = f.kind === 'pdf' ? await ctl.goTo(p.page || 1, p.q) : ctl.goTo(p.q, p.char);
+    showHit(ok, p.q);
+  };
+  fileCtl = { jump };
+  cleanups.push(() => { ctl.destroy(); fileCtl = null; fileCtlId = null; });
+  document.getElementById('vSearch')?.addEventListener('submit', async e => {
+    e.preventDefault();
+    const term = document.getElementById('vTerm').value;
+    const ok = await ctl.search(term);
+    hitInfo.hidden = true;
+    if (!ok) toast(`„${term}“ nicht gefunden`);
+  });
+  if (page || q || char != null) await jump({ page, q, char });
+}
+
 // ===== Einstellungen =====
 async function viewSettings() {
   const s = AI.getSettings();
@@ -943,6 +1025,10 @@ async function viewSettings() {
       <div class="field"><label for="key">API-Schlüssel</label><input class="input" id="key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(s.apiKey)}"></div>
       <div class="field"><label for="model">Modell</label><select class="input" id="model">${AI.MODELS.map(m => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${m.name} – ${m.note}</option>`).join('')}</select></div>
       <div class="btn-row"><button class="btn primary" data-act="saveKey">Speichern</button><button class="btn" data-act="test">Verbindung testen</button></div>
+    </div>
+    <div class="card mt">
+      <h2 style="font-size:18px;margin-bottom:10px">🌗 Design</h2>
+      <div class="seg" id="themeSeg">${[['system', 'Automatisch'], ['light', 'Hell'], ['dark', 'Dunkel']].map(([v, l]) => `<button data-act="setTheme" data-v="${v}" class="${getTheme() === v ? 'on' : ''}">${l}</button>`).join('')}</div>
     </div>
     <div class="card mt">
       <h2 style="font-size:18px;margin-bottom:10px">🔊 Ton</h2>
@@ -964,6 +1050,10 @@ async function viewSettings() {
   actions = {
     back: () => back(),
     install: installHelp,
+    setTheme: d => {
+      setTheme(d.v);
+      app.querySelectorAll('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === d.v));
+    },
     saveKey: () => { save(); toast('Gespeichert'); },
     test: async (_d, btn) => {
       save();
@@ -1033,8 +1123,10 @@ function importBackup() {
 }
 
 // ===== Start =====
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => applyTheme());
 requestPersistence();
-initChat({ goSettings: () => go('settings') });
+initChat({ goSettings: () => go('settings'), openFile });
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }

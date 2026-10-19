@@ -9,7 +9,11 @@ Lade Lernskripte, Übungsklausuren, Karteikarten oder Zusammenfassungen hoch, un
 - **Übungsklausuren** mit Zeitlimit, automatischer Korrektur, Note und Feedback
 - **Lernpläne** bis zu deinem Prüfungstermin
 
-Jedes Fach bekommt einen eigenen Ordner. Über den Knopf **„KI fragen“** ist die KI auf jedem Bildschirm einen Klick entfernt und kennt die Unterlagen des Fachs, in dem du gerade bist (am Mac auch mit ⌘K).
+Deine hochgeladenen Skripte kannst du direkt in der App lesen und durchsuchen (PDF, Word, PowerPoint, Text, Fotos).
+
+Jedes Fach bekommt einen eigenen Ordner. Über den Knopf **„KI fragen“** ist die KI auf jedem Bildschirm einen Klick entfernt und kennt die Unterlagen des Fachs, in dem du gerade bist (am Mac auch mit ⌘K). Antworten mit Bezug auf dein Skript enthalten Links wie „📄 skript.pdf · S. 12“, die direkt zur markierten Stelle im Skript springen.
+
+Hell- oder Dunkelmodus stellst du über das Sonne/Mond-Symbol im Hauptmenü oder in den Einstellungen ein.
 
 ## Öffnen
 
