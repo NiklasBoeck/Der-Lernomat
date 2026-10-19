@@ -143,7 +143,21 @@ async function pdfPages(f) {
 
 // Wandelt die gewählten Dateien in Inhaltsblöcke für die Claude API um.
 // Beim gemeinsamen Zugang gehen PDFs als reiner Text (Seite für Seite) raus: viel günstiger als Seitenbilder.
-export async function filesToBlocks(files, { lean = sharedMode() } = {}) {
+// Nur die Seiten, die zum gewählten Thema passen (plus Nachbarseiten), damit die KI weniger lesen muss.
+function focusPages(pages, focus) {
+  const words = [...new Set(focus.join(' ').toLowerCase().match(/[\p{L}\d]{4,}/gu) || [])]
+    .filter(w => !['kapitel', 'thema', 'teil', 'grundlagen', 'einführung', 'lektion', 'übersicht'].includes(w));
+  if (!words.length) return null;
+  const keep = new Set();
+  pages.forEach((t, i) => {
+    const low = t.toLowerCase();
+    if (words.some(w => low.includes(w))) [i - 1, i, i + 1].forEach(j => j >= 0 && j < pages.length && keep.add(j));
+  });
+  // Zu wenige Treffer: lieber alles schicken, als Wichtiges wegzulassen.
+  return keep.size >= 2 && keep.size < pages.length * 0.9 ? [...keep].sort((a, b) => a - b) : null;
+}
+
+export async function filesToBlocks(files, { lean = sharedMode(), focus = [] } = {}) {
   const blocks = [];
   for (const f of files) {
     const title = `${f.name} (${f.category})`;
@@ -151,7 +165,8 @@ export async function filesToBlocks(files, { lean = sharedMode() } = {}) {
       const pages = await pdfPages(f).catch(() => null);
       // Eingescannte PDFs haben kaum Text: dann doch das PDF selbst schicken.
       if (pages?.length && pages.join('').length / pages.length >= 80) {
-        blocks.push({ type: 'document', title, source: { type: 'content', content: pages.map((t, i) => ({ type: 'text', text: `[Seite ${i + 1}]\n${t || '(kein Text auf dieser Seite)'}` })) } });
+        const idx = (focus.length && focusPages(pages, focus)) || pages.map((_, i) => i);
+        blocks.push({ type: 'document', title, source: { type: 'content', content: idx.map(i => ({ type: 'text', text: `[Seite ${i + 1}]\n${pages[i] || '(kein Text auf dieser Seite)'}` })) } });
         continue;
       }
     }

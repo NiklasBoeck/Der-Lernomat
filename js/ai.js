@@ -133,6 +133,8 @@ Bei Fragen wie „Wo finde ich …?“ nenne Datei und Seite (bzw. Abschnitt) un
 
 function baseParams(maxTokens, effort, system = SYSTEM) {
   const model = sharedMode() ? SHARED_MODEL : getSettings().model;
+  // Beim gemeinsamen Zugang kurz nachdenken lassen: spart Kosten, Haiku reicht dafür.
+  if (sharedMode()) effort = 'low';
   const p = { model, max_tokens: maxTokens, system, output_config: { effort } };
   // Serverseitiger Ersatz, falls ein Sicherheitsfilter fälschlich ablehnt (nicht bei Haiku).
   if (!model.startsWith('claude-haiku')) {
@@ -176,7 +178,7 @@ function textOf(msg) {
 export async function generateJSON({ fileBlocks = [], prompt, schema, maxTokens = 16000, effort = 'medium', onProgress }) {
   const params = {
     ...baseParams(maxTokens, effort),
-    output_config: { effort, format: { type: 'json_schema', schema } },
+    output_config: { effort: sharedMode() ? 'low' : effort, format: { type: 'json_schema', schema } },
     messages: [{ role: 'user', content: [...withCache(fileBlocks), { type: 'text', text: prompt }] }],
   };
   const msg = await runStream(params, onProgress ? s => onProgress(s.length) : null);

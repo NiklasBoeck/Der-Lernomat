@@ -504,7 +504,7 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
       if (!chosen.length) { toast('Wähle mindestens eine Datei aus.'); return; }
       if (totalSize(chosen) > 24 * 1024 * 1024) { toast('Zusammen über 24 MB: bitte weniger Dateien auswählen.', 4000); return; }
       const focus = [...sel.topics, sel.custom.trim()].filter(Boolean);
-      await runGeneration({ subj, type, alive, focus, opts: { ...sel.opts, examDate: sel.examDate, goal: sel.goal }, blocksPromise: filesToBlocks(chosen), onFail: draw });
+      await runGeneration({ subj, type, alive, focus, opts: { ...sel.opts, examDate: sel.examDate, goal: sel.goal }, blocksPromise: filesToBlocks(chosen, { focus }), onFail: draw });
     },
   };
   draw();
@@ -1041,13 +1041,14 @@ function usageLine() {
   const u = AI.usageToday();
   if (!u) return '';
   const name = AI.MODELS.find(m => m.id === u.last?.model)?.name || u.last?.model || '';
-  return `<p class="muted" style="font-size:13px;margin:12px 0 0">Heute: ${u.count} KI-Anfragen, ca. ${centText(u.usd)} (US-Cent). Letzte Anfrage: ca. ${centText(u.last.usd)} mit ${esc(name)}.</p>`;
+  const k = Math.round((u.last.tokens || 0) / 1000);
+  return `<p class="muted" style="font-size:13px;margin:12px 0 0">Heute: ${u.count} KI-Anfragen, ca. ${centText(u.usd)} (US-Cent). Letzte Anfrage: ca. ${centText(u.last.usd)} mit ${esc(name)}, ${k}.000 Tokens gelesen.</p>`;
 }
 
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 9</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 10</p></section>
     <div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🧠 Deine KI</h2>
       ${AI.sharedAI() ? `<div class="notice" style="margin-bottom:12px">${icon('check')}<div>Die KI ist schon eingerichtet und für dich kostenlos (mit Tageslimit). Einen eigenen Schlüssel brauchst du nur, wenn du mehr nutzen willst.</div></div>` : ''}
