@@ -690,3 +690,54 @@ textarea.input { min-height: 110px; resize: vertical; }
 .game-cheer { min-height: 1.6em; text-align: center; margin-top: 12px; font-weight: 700; }
 .game-cheer.good { color: var(--good); animation: fade-up .3s ease both; }
 .game-cheer.bad { color: var(--bad); }
+
+/* ===== Lernfortschritt: Tagesziel, Wiederholung, Fortschritt pro Fach ===== */
+.fc-actions .btn { flex-direction: column; gap: 0; line-height: 1.15; }
+.fc-actions .btn small { font-size: 12px; font-weight: 500; opacity: .75; }
+.due-tag { color: var(--accent); font-weight: 700; }
+.card-when { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.card-when small { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+.goal-card { margin-bottom: 16px; padding: 14px 16px; }
+.goal-main { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; }
+.goal-ring { position: relative; width: 64px; height: 64px; flex-shrink: 0; }
+.goal-ring svg { width: 100%; height: 100%; }
+.goal-ring circle { transition: stroke-dashoffset .6s ease; }
+.goal-ring b { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-round); font-size: 20px; font-weight: 800; color: var(--text); }
+.goal-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.goal-text > span { color: var(--muted); font-size: 14px; }
+.goal-text .week { display: flex; gap: 5px; margin-top: 4px; }
+.goal-text .week i { font-style: normal; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; background: var(--surface-2); color: var(--faint); }
+.goal-text .week i.some { background: var(--accent-soft); color: var(--accent); }
+.goal-text .week i.ok { background: var(--good); color: #fff; }
+.goal-text .week i.today { box-shadow: 0 0 0 2px var(--accent); }
+
+.prog-card { padding: 16px; }
+.prog-exam { display: flex; align-items: center; gap: 14px; padding: 12px 14px; margin-bottom: 14px; border-radius: 14px; background: var(--accent-soft); }
+.prog-exam .big { font-family: var(--font-round); font-size: 30px; font-weight: 800; color: var(--accent); min-width: 40px; text-align: center; }
+.prog-exam div { display: flex; flex-direction: column; }
+.prog-exam span:not(.big) { color: var(--muted); font-size: 14px; }
+.prog-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.prog-grid > div { background: var(--surface-2); border-radius: 12px; padding: 10px 6px; text-align: center; }
+.prog-grid b { display: block; font-family: var(--font-round); font-size: 20px; font-weight: 800; color: var(--accent); }
+.prog-grid span { font-size: 12px; color: var(--muted); }
+@media (max-width: 420px) { .prog-grid { grid-template-columns: repeat(2, 1fr); } }
+.prog-boxes { display: flex; height: 22px; border-radius: 8px; overflow: hidden; margin-top: 12px; font-size: 11px; font-weight: 700; color: #fff; }
+.prog-boxes span { display: grid; place-items: center; white-space: nowrap; overflow: hidden; min-width: 0; }
+.prog-boxes .pb-n { background: var(--faint); }
+.prog-boxes .pb-l { background: var(--warn); }
+.prog-boxes .pb-s { background: var(--good); }
+.prog-plan, .prog-topics { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.prog-plan p { margin: 8px 0 10px; font-size: 15px; }
+.row-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 8px; }
+.row-head b { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-head span { color: var(--muted); font-size: 13px; flex-shrink: 0; }
+.topic-row { display: grid; grid-template-columns: minmax(0, 1fr) 90px 44px; align-items: center; gap: 10px; width: 100%; padding: 8px 0; text-align: left; border-radius: 8px; }
+.topic-row:hover { background: var(--surface-2); }
+.topic-row .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; }
+.topic-row .tag { grid-column: 2 / 4; justify-self: end; margin: 0; }
+.topic-row .pct { font-size: 13px; color: var(--muted); text-align: right; }
+.progress.low > i { background: var(--bad); }
+.progress.mid > i { background: var(--warn); }
+.tag.late { background: var(--bad-soft); color: var(--bad); }
+.tag.now { background: var(--accent-soft); color: var(--accent); }

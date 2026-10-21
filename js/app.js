@@ -14,6 +14,8 @@ import * as LLM from './lena/llm.js';
 import { explainSummary, refineGrading } from './lena/enhance.js';
 import { owlSVG, owlAtWork, owlFlyBy } from './owl.js';
 import { startGame, makePairs, highscore } from './game.js';
+import * as Progress from './progress.js';
+import * as Share from './share.js';
 
 // Ohne Cloud-KI ist Lena immer bereit, ganz ohne Schlüssel.
 const aiReady = () => !CLOUD_AI || AI.hasKey();
@@ -53,7 +55,7 @@ async function render(st) {
   cleanups = [];
   actions = {};
   window.scrollTo(0, 0);
-  const views = { home: viewHome, subject: viewSubject, builder: viewBuilder, set: viewSet, settings: viewSettings, file: viewFile, game: viewGame };
+  const views = { home: viewHome, subject: viewSubject, builder: viewBuilder, set: viewSet, settings: viewSettings, file: viewFile, game: viewGame, review: viewReview };
   showFab(st.view !== 'splash');
   setChatContext(null);
   try {
@@ -204,6 +206,7 @@ async function viewHome() {
       <div class="bubble"><h1>${greeting()}</h1><p>${subjects.length ? 'Was möchtest du heute lernen?' : 'Ich bin die Lernomat-Eule. Leg dein erstes Fach an, dann legen wir los!'}</p></div>
     </section>
     ${subjects.length ? `<div class="home-stats">${stats.map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join('')}</div>` : ''}
+    ${subjects.length ? goalCard(dueInfo(sets)) : ''}
     ${!aiReady() ? `<div class="notice" style="margin-bottom:16px">${icon('key')}<div><b>Verbinde deine KI.</b> Damit der Lernomat Zusammenfassungen, Karteikarten und Klausuren bauen kann, trage einmal deinen API-Schlüssel ein.<div class="mt" style="margin-top:10px"><button class="btn small primary" data-act="settings">Jetzt einrichten</button></div></div></div>` : ''}
     <div class="quick-actions">
       <button class="card tap qa" data-act="upload"><span class="ico">${icon('upload')}</span><div><b>Dateien hochladen</b><span>Skripte, Fotos, Karteikarten …</span></div></button>
@@ -228,6 +231,7 @@ async function viewHome() {
     ${!standalone ? `<button class="install-hint" data-act="install">${icon('phone')} Als App auf iPhone oder Mac installieren</button>` : ''}
   </div>`;
 
+  takePendingShare();
   actions = {
     settings: () => go('settings'),
     theme: (_d, btn) => {
@@ -240,8 +244,79 @@ async function viewHome() {
     upload: () => uploadChooser(subjects),
     install: installHelp,
     game: () => gameChooser(subjects),
+    review: () => go('review', {}),
+    goal: goalDialog,
     poke: (_d, el) => { const o = el.querySelector('.owl-svg'); o.classList.remove('happy'); void o.getBoundingClientRect(); o.classList.add('happy'); sfx('tap'); },
   };
+}
+
+// Tagesziel, Serie und fällige Karten auf einen Blick.
+function goalCard({ due, fresh }) {
+  const t = Progress.today();
+  const st = Progress.streak();
+  const pct = Math.min(1, t.n / t.goal);
+  const R = 26, C = 2 * Math.PI * R;
+  const remind = Progress.reminderDue();
+  return `<div class="card goal-card">
+    <button class="goal-main" data-act="goal" aria-label="Tagesziel einstellen">
+      <span class="goal-ring"><svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="${R}" stroke="var(--surface-2)" stroke-width="7" fill="none"/>
+        <circle cx="32" cy="32" r="${R}" stroke="${pct >= 1 ? 'var(--good)' : 'var(--accent)'}" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct)}" transform="rotate(-90 32 32)"/></svg>
+        <b>${pct >= 1 ? '✓' : t.n}</b></span>
+      <span class="goal-text"><b>${pct >= 1 ? 'Tagesziel geschafft! 🎉' : `Tagesziel: ${t.n} von ${t.goal}`}</b>
+        <span>${st.days ? `🔥 ${st.days} ${st.days === 1 ? 'Tag' : 'Tage'} in Folge${st.todayOk ? '' : ' · heute noch offen'}` : 'Lerne heute, dann startet deine Serie 🔥'}</span>
+        <span class="week">${Progress.week().map(d => `<i class="${d.ok ? 'ok' : d.n ? 'some' : ''} ${d.today ? 'today' : ''}" title="${d.n}">${d.label}</i>`).join('')}</span></span>
+    </button>
+    ${remind ? `<div class="notice" style="margin-top:12px">${icon('clock')}<div><b>Erinnerung:</b> Zeit für deine Lernrunde! Noch ${t.goal - t.n} bis zum Tagesziel.</div></div>` : ''}
+    ${due || fresh ? `<button class="btn primary block" data-act="review" style="margin-top:12px">${icon('cards')} ${due ? `${due} ${due === 1 ? 'Karte' : 'Karten'} heute wiederholen` : `${Math.min(fresh, 10)} neue Karten lernen`}</button>` : ''}
+  </div>`;
+}
+
+function goalDialog() {
+  const p = Progress.loadProgress();
+  const st = Progress.streak();
+  const m = openModal(`<h2>Tagesziel & Erinnerung</h2>
+    <p class="muted" style="margin-top:-6px">Jede Karteikarte, jede Frage im Eulen-Blitz und jede Klausuraufgabe zählt. Schaffst du dein Ziel jeden Tag, wächst deine Serie. ${st.best > 1 ? `Deine längste Serie: ${st.best} Tage.` : ''}</p>
+    <div class="field"><label>Wie viele Karten oder Fragen pro Tag?</label><div class="seg" id="goalSeg">${[10, 20, 30, 50, 100].map(n => `<button data-g="${n}" class="${p.goal === n ? 'on' : ''}">${n}</button>`).join('')}</div></div>
+    <div class="field"><label class="check-row"><input type="checkbox" id="remOn" ${p.reminder.on ? 'checked' : ''}><span><b>Tägliche Erinnerung</b></span></label>
+      <input type="time" class="input" id="remTime" value="${esc(p.reminder.time)}" style="margin-top:8px;max-width:160px"></div>
+    <p class="muted" style="font-size:14px">Auf iPhone und Mac kann eine Web-App keinen Wecker im Hintergrund stellen. Am zuverlässigsten ist ein täglicher Termin in deinem Kalender, der dich erinnert. Ist der Lernomat offen, erinnert er dich zusätzlich selbst.</p>
+    <div class="btn-row"><button class="btn" id="remCal">${icon('clock')} Erinnerung in den Kalender</button></div>
+    <div class="btn-row"><button class="btn primary" data-close>Fertig</button></div>`, { onClose: () => render(history.state) });
+  m.el.querySelectorAll('[data-g]').forEach(b => b.addEventListener('click', () => {
+    Progress.setGoal(Number(b.dataset.g));
+    m.el.querySelectorAll('[data-g]').forEach(x => x.classList.toggle('on', x === b));
+  }));
+  const remOn = m.el.querySelector('#remOn'), remTime = m.el.querySelector('#remTime');
+  const saveRem = async () => {
+    Progress.setReminder({ on: remOn.checked, time: remTime.value || '18:00' });
+    if (remOn.checked) await Progress.askNotifications();
+    Progress.scheduleReminder();
+  };
+  remOn.addEventListener('change', saveRem);
+  remTime.addEventListener('change', saveRem);
+  m.el.querySelector('#remCal').addEventListener('click', async () => {
+    const time = remTime.value || '18:00';
+    if (!remOn.checked) { remOn.checked = true; await saveRem(); }
+    // Direkt öffnen statt teilen: Safari und macOS bieten dann „Zum Kalender hinzufügen“ an.
+    const file = new File([Progress.reminderIcs(time, Share.appUrl())], 'Lernomat-Erinnerung.ics', { type: 'text/calendar' });
+    downloadFile(file);
+    toast('Termin öffnen und „Hinzufügen“ tippen.', 4000);
+  });
+}
+
+// Datei teilen (iPhone: Teilen-Blatt) oder herunterladen.
+async function saveOrShare(file) {
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: file.name }); return; } catch (err) { if (err?.name === 'AbortError') return; }
+  }
+  downloadFile(file);
+}
+function downloadFile(file) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = file.name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 function setRow(s, sub) {
@@ -249,7 +324,8 @@ function setRow(s, sub) {
   let info = relDate(s.lastOpened || s.created);
   if (s.type === 'cards') {
     const known = s.data.cards.filter(c => c.box >= 3).length;
-    info = `${s.data.cards.length} Karten · ${known} sicher · ${info}`;
+    const { due, fresh } = dueInfo([s]);
+    info = `${s.data.cards.length} Karten · ${known} sicher${due ? ` · <b class="due-tag">${due} fällig</b>` : fresh ? ` · ${fresh} neu` : ''} · ${info}`;
   } else if (s.type === 'exam') {
     const best = Math.max(-1, ...(s.attempts || []).map(a => Math.round(a.score / a.max * 100)));
     info = `${s.data.questions.length} Aufgaben${best >= 0 ? ` · bestes Ergebnis ${best} %` : ''} · ${info}`;
@@ -405,6 +481,90 @@ function installHelp() {
 }
 
 // ===== Fach (Ordner) =====
+// Fortschritt pro Fach: was schon sitzt, wo die Lücken sind und ob der Lernplan bis zur Prüfung aufgeht.
+const norm = t => String(t || '').toLowerCase().replace(/\s+/g, ' ').trim();
+function topicStats(subj, sets) {
+  const map = new Map();
+  const get = title => {
+    const k = norm(title);
+    if (!k) return null;
+    // Gleiche oder ineinander enthaltene Themen zusammenfassen.
+    for (const [key, v] of map) if (key === k || (k.length > 4 && key.length > 4 && (key.includes(k) || k.includes(key)))) return v;
+    const v = { title, card: [], exam: [] };
+    map.set(k, v);
+    return v;
+  };
+  for (const t of subj.topics || []) get(t.title);
+  for (const s of sets) {
+    if (s.type === 'cards') for (const c of s.data.cards) get(c.topic)?.card.push(c.box / 4);
+    if (s.type === 'exam' && s.attempts?.length) {
+      const a = s.attempts[s.attempts.length - 1];
+      s.data.questions.forEach((q, i) => { const r = a.results[i]; if (r && !r.selfGrade) get(q.topic)?.exam.push(r.points / (q.points || 1)); });
+    }
+  }
+  const avg = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
+  return [...map.values()].map(v => {
+    const parts = [v.card.length ? avg(v.card) : null, v.exam.length ? avg(v.exam) : null].filter(x => x !== null);
+    return { title: v.title, score: parts.length ? avg(parts) : null, n: v.card.length + v.exam.length };
+  });
+}
+
+function planStatus(sets) {
+  const plans = sets.filter(s => s.type === 'plan').sort((a, b) => b.created - a.created);
+  const plan = plans.find(p => p.data.examDate) || plans[0];
+  if (!plan) return null;
+  const steps = plan.data.steps;
+  const todayKey = Progress.dayKey();
+  const behind = steps.filter(s => s.date && s.date < todayKey && !s.done).length;
+  const todays = steps.filter(s => s.date === todayKey && !s.done);
+  const next = steps.find(s => !s.done);
+  const done = steps.filter(s => s.done).length;
+  let daysLeft = null;
+  if (plan.data.examDate) daysLeft = Math.round((new Date(plan.data.examDate + 'T00:00') - Progress.dayStart()) / 864e5);
+  return { plan, steps, done, behind, todays, next, daysLeft };
+}
+
+function progressSection(subj, sets) {
+  if (!sets.length) return '';
+  const m = mastery(sets);
+  const { due, fresh } = dueInfo(sets);
+  const ps = planStatus(sets);
+  const exams = sets.filter(s => s.type === 'exam' && s.attempts?.length);
+  const scores = exams.flatMap(s => s.attempts.map(a => ({ date: a.date, pct: Math.round(a.score / a.max * 100) }))).sort((a, b) => a.date - b.date);
+  const tps = topicStats(subj, sets).filter(t => t.score !== null || (subj.topics || []).length);
+  // Lücken zuerst: noch nie geübt, dann am wenigsten sicher.
+  tps.sort((a, b) => (a.score ?? -1) - (b.score ?? -1));
+  const week = Progress.learnedOn(subj.id, 7);
+  const cards = sets.filter(s => s.type === 'cards').flatMap(s => s.data.cards);
+  const bar = (v, cls = '') => `<div class="progress ${cls}"><i style="width:${Math.round(v * 100)}%"></i></div>`;
+  const color = v => v === null ? '' : v >= 0.75 ? 'good' : v >= 0.4 ? 'mid' : 'low';
+  return `<div class="section-title"><h2>Dein Fortschritt</h2></div>
+    <div class="card prog-card">
+      ${ps?.daysLeft != null ? `<div class="prog-exam"><span class="big">${ps.daysLeft > 0 ? ps.daysLeft : ps.daysLeft === 0 ? '🎯' : '✓'}</span><div><b>${ps.daysLeft > 1 ? `Noch ${ps.daysLeft} Tage bis zur Prüfung` : ps.daysLeft === 1 ? 'Morgen ist die Prüfung!' : ps.daysLeft === 0 ? 'Heute ist die Prüfung. Viel Erfolg! 🍀' : 'Die Prüfung ist vorbei.'}</b>
+        <span>${new Date(ps.plan.data.examDate + 'T00:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'long' })}</span></div></div>` : ''}
+      <div class="prog-grid">
+        <div><b>${m === null ? '–' : Math.round(m * 100) + ' %'}</b><span>sicher</span></div>
+        <div><b>${due}</b><span>heute fällig</span></div>
+        <div><b>${scores.length ? scores[scores.length - 1].pct + ' %' : '–'}</b><span>letzte Klausur${scores.length > 1 ? ` ${scores[scores.length - 1].pct >= scores[scores.length - 2].pct ? '↗' : '↘'}` : ''}</span></div>
+        <div><b>${week}</b><span>gelernt (7 Tage)</span></div>
+      </div>
+      ${cards.length ? `<div class="prog-boxes" title="Karten nach Sicherheit">${[['Neu', cards.filter(c => Progress.isNew(c)).length, 'n'], ['Lerne ich', cards.filter(c => !Progress.isNew(c) && c.box < 3).length, 'l'], ['Sicher', cards.filter(c => c.box >= 3).length, 's']].map(([l, n, k]) => `<span class="pb-${k}" style="flex:${n || 0.0001}">${n ? `${l} ${n}` : ''}</span>`).join('')}</div>` : ''}
+      ${due || fresh ? `<button class="btn primary block" data-act="review" style="margin-top:14px">${icon('cards')} ${due ? `${due} fällige ${due === 1 ? 'Karte' : 'Karten'} wiederholen` : `Neue Karten lernen`}</button>` : ''}
+      ${ps ? `<div class="prog-plan">
+        <div class="row-head"><b>${icon('plan')} ${esc(ps.plan.title)}</b><span>${ps.done}/${ps.steps.length}</span></div>
+        ${bar(ps.done / ps.steps.length)}
+        <p>${ps.done === ps.steps.length ? 'Alle Schritte erledigt. Stark! 💪' : ps.behind ? `⚠️ ${ps.behind} ${ps.behind === 1 ? 'Schritt ist' : 'Schritte sind'} überfällig. Hol ${ps.behind === 1 ? 'ihn' : 'sie'} nach, dann bist du wieder im Plan.` : ps.todays.length ? `Heute dran: <b>${esc(ps.todays[0].title)}</b>` : `✓ Du liegst im Plan.${ps.next ? ` Als Nächstes: ${esc(ps.next.title)}` : ''}`}</p>
+        <button class="btn small" data-act="openSet" data-id="${ps.plan.id}">Lernplan öffnen</button>
+      </div>` : ''}
+      ${tps.length ? `<div class="prog-topics"><div class="row-head"><b>Themen</b><span>Lücken zuerst</span></div>
+        ${tps.slice(0, 8).map(t => `<button class="topic-row" data-act="practice" data-type="${t.score === null ? 'summary' : 'cards'}" data-t="${esc(t.title)}">
+          <span class="t">${esc(t.title)}</span>
+          ${t.score === null ? '<span class="muted tag">noch nicht geübt</span>' : `${bar(t.score, color(t.score))}<span class="pct">${Math.round(t.score * 100)} %</span>`}
+        </button>`).join('')}
+        <p class="muted" style="font-size:13px;margin:8px 0 0">Tippe auf ein Thema, um dazu zu üben. Grundlage sind deine Karteikarten und die letzte Übungsklausur.</p></div>` : ''}
+    </div>`;
+}
+
 async function viewSubject({ id }) {
   const subj = await db.get('subjects', id);
   if (!subj) return go('home', {}, { replace: true });
@@ -418,6 +578,8 @@ async function viewSubject({ id }) {
     ${topbar({ crumb: 'Hauptmenü', right: `<button class="icon-btn" data-act="menu" aria-label="Fach-Optionen">${icon('more')}</button>` })}
     <section class="hero"><div style="font-size:42px;line-height:1">${subj.emoji}</div><h1 style="margin-top:8px">${esc(subj.name)}</h1>
       <p>${files.length ? `${files.length} ${files.length === 1 ? 'Datei' : 'Dateien'} · ${formatSize(totalSize(files))}` : `Lade deine Unterlagen hoch, dann legt ${KI} los.`}</p></section>
+
+    ${progressSection(subj, sets)}
 
     <div class="section-title"><h2>Was soll ${KI} für dich bauen?</h2></div>
     <div class="builders">
@@ -465,6 +627,9 @@ async function viewSubject({ id }) {
     openSet: d => go('set', { id: d.id }),
     viewFile: d => go('file', { id: d.id }),
     game: () => go('game', { subjectId: id }),
+    review: () => go('review', { subjectId: id }),
+    practice: d => go('builder', { subjectId: id, type: d.type, preset: { custom: d.t } }),
+    importSet: () => importSetDialog(id),
     delFile: async d => {
       const f = files.find(x => x.id === d.id);
       if (await confirmDialog(`„${f.name}“ wird aus diesem Fach entfernt.`, { ok: 'Löschen', danger: true })) {
@@ -475,9 +640,11 @@ async function viewSubject({ id }) {
     },
     menu: () => {
       const m = openModal(`<h2>${esc(subj.name)}</h2><div class="list">
+        <button class="row tap" data-x="import"><span class="ico">${icon('download')}</span><span class="main"><b>Geteiltes Lernset importieren</b><span>aus einem Link oder einer Datei</span></span></button>
         <button class="row tap" data-x="edit"><span class="ico">${icon('edit')}</span><span class="main"><b>Titel, Symbol & Farbe ändern</b></span></button>
         <button class="row tap" data-x="del"><span class="ico" style="color:var(--bad)">${icon('trash')}</span><span class="main"><b style="color:var(--bad)">Fach löschen</b><span>inklusive aller Dateien und Lernsets</span></span></button>
       </div><div class="btn-row"><button class="btn" data-close>Schließen</button></div>`);
+      m.el.querySelector('[data-x="import"]').addEventListener('click', () => { m.close(); importSetDialog(id); });
       m.el.querySelector('[data-x="edit"]').addEventListener('click', async () => {
         m.close();
         if (await subjectDialog(subj)) render(history.state);
@@ -652,7 +819,7 @@ async function runGeneration({ subj, type, alive, focus, opts, files = [], extra
         set = { ...base, title: res.title, data: { duration: res.duration_minutes, questions: res.questions }, attempts: [] };
       } else {
         const res = await Lena.plan(src, { focus, examDate: opts.examDate, perDay: opts.perDay, goal: opts.goal, name: subj.name });
-        set = { ...base, title: res.title, data: { overview: res.overview, steps: res.steps.map(s => ({ ...s, done: false })) } };
+        set = { ...base, title: res.title, data: { overview: res.overview, examDate: res.examDate || '', steps: res.steps.map(s => ({ ...s, done: false })) } };
       }
     } else {
     const fileBlocks = [...await filesToBlocks(files, { focus }), ...extra.map(x => ({ type: 'document', title: x.title, source: { type: 'text', media_type: 'text/plain', data: x.text } }))];
@@ -678,7 +845,7 @@ async function runGeneration({ subj, type, alive, focus, opts, files = [], extra
       set = { ...base, title: res.title || `Übungsklausur ${subj.name}`, data: { duration: res.duration_minutes || questions.length * 4, questions }, attempts: [] };
     } else {
       const res = await AI.generateJSON({ fileBlocks, prompt: PR.planPrompt({ focus, examDate: opts.examDate, perDay: opts.perDay, goal: opts.goal }), schema: AI.SCHEMAS.plan, maxTokens: 12000 });
-      set = { ...base, title: res.title || `Lernplan ${subj.name}`, data: { overview: res.overview, steps: res.steps.map(s => ({ ...s, done: false })) } };
+      set = { ...base, title: res.title || `Lernplan ${subj.name}`, data: { overview: res.overview, examDate: opts.examDate || '', steps: res.steps.map(s => ({ ...s, done: false })) } };
     }
     }
     await db.put('sets', set);
@@ -723,11 +890,13 @@ const setTopbar = (set, subj) => topbar({
 
 function setMenu(set, extra = []) {
   const m = openModal(`<h2>${esc(set.title)}</h2><div class="list">
+    <button class="row tap" data-x="share"><span class="ico">${icon('share')}</span><span class="main"><b>${set.type === 'cards' ? 'Karteikarten teilen' : 'Teilen'}</b><span>per Link oder Datei, ohne Konto</span></span></button>
     ${extra.map((x, i) => `<button class="row tap" data-i="${i}"><span class="ico">${icon(x.icon)}</span><span class="main"><b>${x.label}</b></span></button>`).join('')}
     <button class="row tap" data-x="rename"><span class="ico">${icon('edit')}</span><span class="main"><b>Umbenennen</b></span></button>
     <button class="row tap" data-x="del"><span class="ico" style="color:var(--bad)">${icon('trash')}</span><span class="main"><b style="color:var(--bad)">Löschen</b></span></button>
   </div><div class="btn-row"><button class="btn" data-close>Schließen</button></div>`);
   m.el.querySelectorAll('[data-i]').forEach(b => b.addEventListener('click', () => { m.close(); extra[b.dataset.i].run(); }));
+  m.el.querySelector('[data-x="share"]').addEventListener('click', async () => { m.close(); shareDialog(set, await db.get('subjects', set.subjectId)); });
   m.el.querySelector('[data-x="rename"]').addEventListener('click', () => {
     m.close();
     const r = openModal(`<h2>Umbenennen</h2><form><input class="input" id="rn" value="${esc(set.title)}" maxlength="100">
@@ -764,12 +933,7 @@ function viewSummary(set, subj, alive) {
     back: () => back({ view: 'subject', params: { id: set.subjectId } }),
     jump: d => document.getElementById(d.id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
     setMenu: () => setMenu(set),
-    share: async () => {
-      if (navigator.share) { try { await navigator.share({ title: set.title, text: set.data.markdown }); } catch { /* abgebrochen */ } } else {
-        await navigator.clipboard.writeText(set.data.markdown);
-        toast('In die Zwischenablage kopiert');
-      }
-    },
+    share: () => shareDialog(set, subj),
     toCards: () => {
       if (!aiReady()) return go('settings');
       runGeneration({ subj, type: 'cards', alive, focus: set.focus || [], opts: { count: '20', style: 'gemischt' }, extra: [{ title: set.title, text: set.data.markdown.replace(/[*>|]/g, ' ') }] });
@@ -778,46 +942,80 @@ function viewSummary(set, subj, alive) {
 }
 
 // --- Karteikarten ---
-function viewCards(set, subj, alive, mode = 'all') {
-  const cards = set.data.cards;
-  const pool = mode === 'weak' ? cards.filter(c => c.box < 3) : cards;
-  // Unsichere Karten zuerst, innerhalb gleicher Stufe gemischt.
-  let queue = [0, 1, 2, 3, 4].flatMap(b => shuffle(pool.filter(c => c.box === b)));
+// Wiederholung mit System: Standard sind die heute fälligen Karten (neue zuerst nach den fälligen).
+function viewCards(set, subj, alive, mode = 'due') {
+  studyCards({ sets: [set], subjById: { [set.subjectId]: subj }, alive, mode, single: set });
+}
+
+// Lernrunde über eine oder mehrere Kartenstapel. single: der geöffnete Stapel (sonst „Wiederholen“ über mehrere).
+function studyCards({ sets, subjById, alive, mode = 'due', single = null, newLimit = Infinity, label = '' }) {
+  const owner = new Map();
+  for (const s of sets) for (const c of s.data.cards) owner.set(c, s);
+  const cards = [...owner.keys()];
+  const now = Date.now();
+  let pool;
+  if (mode === 'weak') pool = cards.filter(c => c.box < 3);
+  else if (mode === 'all') pool = cards;
+  else {
+    const due = cards.filter(c => !Progress.isNew(c) && Progress.isDue(c, now));
+    const fresh = cards.filter(c => Progress.isNew(c)).slice(0, newLimit);
+    pool = [...due, ...fresh];
+  }
+  // Unsichere Karten zuerst, innerhalb gleicher Stufe gemischt. Neue Karten kommen nach den fälligen.
+  let queue = mode === 'due'
+    ? [...[0, 1, 2, 3, 4].flatMap(b => shuffle(pool.filter(c => !Progress.isNew(c) && c.box === b))), ...pool.filter(Progress.isNew)]
+    : [0, 1, 2, 3, 4].flatMap(b => shuffle(pool.filter(c => c.box === b)));
   let flipped = false;
   let doneCount = 0;
   const startLen = queue.length;
+  const subjOf = c => subjById[owner.get(c)?.subjectId];
+  const first = single || sets[0];
+  const subj0 = subjById[first?.subjectId];
+  const bar = () => single ? setTopbar(single, subj0) : topbar({ crumb: label || 'Wiederholen' });
   setChatContext({
-    subjectId: set.subjectId, label: subj?.name,
-    detail: () => queue[0] ? `bei der Karteikarte „${queue[0].front}“ (Rückseite: „${queue[0].back}“)` : `beim Kartenstapel „${set.title}“`,
+    subjectId: single ? single.subjectId : (queue[0] && owner.get(queue[0])?.subjectId) || null,
+    label: single ? subj0?.name : subjOf(queue[0])?.name,
+    detail: () => queue[0] ? `bei der Karteikarte „${queue[0].front}“ (Rückseite: „${queue[0].back}“)` : single ? `beim Kartenstapel „${single.title}“` : 'beim Wiederholen der Karteikarten',
     lenaSuggestions: ['Erklär mir diese Karte genauer.', 'Wo steht das im Skript?', 'Eselsbrücke dafür?', 'Frag mich ab!'],
   });
 
-  const save = () => db.put('sets', set);
+  const dirty = new Set();
+  const save = () => Promise.all([...dirty].map(s => db.put('sets', s))).then(() => dirty.clear());
+  const restart = m => { cleanups.forEach(f => f()); cleanups = []; studyCards({ sets, subjById, alive, mode: m, single, newLimit, label }); };
   const draw = () => {
     if (!alive()) return;
     const known = cards.filter(c => c.box >= 3).length;
     const c = queue[0];
     if (!c) {
-      sfx('done');
-      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}
-        <div class="thinking"><div style="font-size:56px">🎉</div><b>Runde geschafft!</b>
-        <p>${known} von ${cards.length} Karten sitzen schon sicher.</p>
+      const next = Progress.nextDue(cards);
+      const left = Progress.dueCards(cards).length;
+      const t = Progress.today();
+      if (startLen) sfx('done');
+      app.innerHTML = `<div class="screen">${bar()}
+        <div class="thinking"><div class="game-owl" style="margin:0 auto 6px">${owlSVG({ cap: true, cls: 'happy' })}</div>
+        <b>${startLen ? 'Runde geschafft!' : 'Für heute ist alles wiederholt!'}</b>
+        <p>${known} von ${cards.length} Karten sitzen schon sicher.${!left && next ? `<br>Die nächsten Karten sind <b>${Progress.whenText(next)}</b> wieder dran.` : ''}</p>
+        <p class="muted" style="font-size:14px;margin-top:-6px">Tagesziel: ${Math.min(t.n, t.goal)}/${t.goal} ${t.n >= t.goal ? '✅' : ''}</p>
         <div class="btn-row" style="justify-content:center">
-          ${known < cards.length ? '<button class="btn primary" data-act="weak">Nur unsichere üben</button>' : ''}
-          <button class="btn" data-act="all">Alle nochmal</button></div></div></div>`;
+          ${left ? `<button class="btn primary" data-act="due">Weiter mit ${left} fälligen</button>` : ''}
+          ${known < cards.length ? `<button class="btn ${left ? '' : 'primary'}" data-act="weak">Unsichere üben</button>` : ''}
+          <button class="btn" data-act="all">Alle nochmal</button></div>
+        <p class="muted" style="font-size:13px;max-width:420px;margin:10px auto 0">Wiederholung mit System: Karten, die du weißt, kommen erst nach 1, 3, 7, 16 Tagen und immer längeren Abständen wieder, kurz bevor du sie vergessen würdest.</p></div></div>`;
       return;
     }
-    app.innerHTML = `<div class="screen">${setTopbar(set, subj)}
+    const isNew = Progress.isNew(c);
+    const cs = single ? '' : subjOf(c);
+    app.innerHTML = `<div class="screen">${bar()}
       <div class="fc-wrap">
         <div class="fc-stats"><div class="progress"><i style="width:${startLen ? doneCount / startLen * 100 : 0}%"></i></div><span>${doneCount}/${startLen}</span></div>
         <div class="flashcard ${flipped ? 'flipped' : ''}" id="fc" role="button" tabindex="0" aria-label="Karte umdrehen">
           <div class="inner">
-            <div class="face front"><div class="label">Frage</div><div class="content">${esc(c.front)}</div>
+            <div class="face front"><div class="label">${isNew ? 'Neue Karte' : 'Frage'}${cs ? ` · ${cs.emoji} ${esc(cs.name)}` : ''}</div><div class="content">${esc(c.front)}</div>
               <div class="sets-row"><span class="topic">${esc(c.topic || '')}</span><span class="spacer" style="flex:1"></span><span class="boxes">${[1, 2, 3, 4].map(b => `<i class="${c.box >= b ? 'on' : ''}"></i>`).join('')}</span></div></div>
             <div class="face back"><div class="label">Antwort</div><div class="content"><div>${renderMarkdown(c.back).html}</div></div></div>
           </div>
         </div>
-        <div class="fc-actions" id="fcAnswer" ${flipped ? '' : 'hidden'}><button class="btn again" data-act="again">Nochmal</button><button class="btn know" data-act="know">Gewusst ${icon('check')}</button></div>
+        <div class="fc-actions" id="fcAnswer" ${flipped ? '' : 'hidden'}><button class="btn again" data-act="again">Nochmal<small>morgen wieder</small></button><button class="btn know" data-act="know"><span>Gewusst ${icon('check')}</span><small>${nextText(c)}</small></button></div>
         <button class="btn primary" id="fcShow" data-act="flip" style="width:100%;max-width:560px;min-height:56px" ${flipped ? 'hidden' : ''}>Antwort zeigen</button>
         <div class="fc-hint">Tippen zum Umdrehen · Wischen nach rechts = gewusst, nach links = nochmal</div>
         <div class="muted" style="font-size:14px">${known} von ${cards.length} Karten sicher</div>
@@ -833,6 +1031,12 @@ function viewCards(set, subj, alive, mode = 'all') {
       if (Math.abs(dx) > 70) answer(dx > 0);
     });
   };
+  // Vorschau, wann die Karte bei „Gewusst“ wiederkommt.
+  const nextText = c => {
+    if (!Progress.isDue(c)) return 'Plan bleibt';
+    const probe = Progress.review({ ...c }, true);
+    return probe.ivl === 1 ? 'morgen wieder' : `in ${probe.ivl} Tagen`;
+  };
   const flip = () => {
     flipped = !flipped;
     sfx('flip');
@@ -845,12 +1049,16 @@ function viewCards(set, subj, alive, mode = 'all') {
   const answer = good => {
     const c = queue.shift();
     if (!c) return;
-    c.seen = (c.seen || 0) + 1;
-    if (good) { c.box = Math.min(4, c.box + 1); doneCount++; sfx('good'); } else {
-      c.box = 0; sfx('bad');
+    // Vorziehen (Karte noch nicht fällig) verschiebt den Plan nicht, ein Fehler holt sie aber wieder nach vorn.
+    if (Progress.isDue(c) || !good) Progress.review(c, good);
+    else c.seen = (c.seen || 0) + 1;
+    if (good) { doneCount++; sfx('good'); } else {
+      sfx('bad');
       queue.splice(Math.min(3, queue.length), 0, c);
     }
+    dirty.add(owner.get(c));
     save();
+    Progress.logActivity(1, owner.get(c)?.subjectId);
     const fc = document.getElementById('fc');
     flipped = false;
     if (fc) { fc.classList.add(good ? 'swipe-right' : 'swipe-left'); setTimeout(draw, 260); } else draw();
@@ -864,21 +1072,41 @@ function viewCards(set, subj, alive, mode = 'all') {
   document.addEventListener('keydown', onKey);
   cleanups.push(() => document.removeEventListener('keydown', onKey));
   actions = {
-    back: () => back({ view: 'subject', params: { id: set.subjectId } }),
+    back: () => single ? back({ view: 'subject', params: { id: single.subjectId } }) : back(),
     flip, know: () => answer(true), again: () => answer(false),
-    weak: () => { cleanups.forEach(f => f()); cleanups = []; viewCards(set, subj, alive, 'weak'); },
-    all: () => { cleanups.forEach(f => f()); cleanups = []; viewCards(set, subj, alive, 'all'); },
-    setMenu: () => setMenu(set, [
-      { icon: 'shuffle', label: 'Nur unsichere Karten üben', run: () => actions.weak() },
-      { icon: 'refresh', label: 'Lernfortschritt zurücksetzen', run: async () => { cards.forEach(c => { c.box = 0; }); await save(); actions.all(); } },
-      { icon: 'summary', label: 'Alle Karten als Liste ansehen', run: () => cardList(set) },
+    due: () => restart('due'),
+    weak: () => restart('weak'),
+    all: () => restart('all'),
+    setMenu: () => single && setMenu(single, [
+      { icon: 'shuffle', label: 'Nur unsichere Karten üben', run: () => restart('weak') },
+      { icon: 'play', label: 'Alle Karten üben', run: () => restart('all') },
+      { icon: 'refresh', label: 'Lernfortschritt zurücksetzen', run: async () => { cards.forEach(c => { c.box = 0; c.seen = 0; delete c.due; delete c.ivl; delete c.lapse; delete c.ease; }); dirty.add(single); await save(); restart('due'); } },
+      { icon: 'summary', label: 'Alle Karten als Liste ansehen', run: () => cardList(single) },
     ]),
   };
   draw();
 }
 
+// Wiederholen über alle Stapel (eines Fachs oder aller Fächer).
+async function viewReview({ subjectId }, alive) {
+  const [subjects, all] = await Promise.all([db.all('subjects'), subjectId ? db.bySubject('sets', subjectId) : db.all('sets')]);
+  const sets = all.filter(s => s.type === 'cards');
+  const subjById = Object.fromEntries(subjects.map(s => [s.id, s]));
+  if (!alive()) return;
+  if (!sets.length) { toast('Hier gibt es noch keine Karteikarten. Erstelle zuerst welche.'); return go(subjectId ? 'subject' : 'home', subjectId ? { id: subjectId } : {}, { replace: true }); }
+  studyCards({ sets, subjById, alive, mode: 'due', newLimit: 10, label: subjectId ? `${subjById[subjectId]?.emoji || ''} ${esc(subjById[subjectId]?.name || '')} · Wiederholen` : 'Wiederholen' });
+}
+
+// Zählt fällige Wiederholungen und neue Karten.
+function dueInfo(sets) {
+  let due = 0, fresh = 0;
+  const now = Date.now();
+  for (const s of sets) if (s.type === 'cards') for (const c of s.data.cards) { if (Progress.isNew(c)) fresh++; else if (Progress.isDue(c, now)) due++; }
+  return { due, fresh };
+}
+
 function cardList(set) {
-  openModal(`<h2>${esc(set.title)}</h2><div class="list">${set.data.cards.map(c => `<div class="row" style="align-items:flex-start"><span class="main" style="white-space:normal"><b style="white-space:normal">${esc(c.front)}</b><span style="white-space:normal">${esc(c.back)}</span></span><span class="boxes">${[1, 2, 3, 4].map(b => `<i class="${c.box >= b ? 'on' : ''}"></i>`).join('')}</span></div>`).join('')}</div>
+  openModal(`<h2>${esc(set.title)}</h2><div class="list">${set.data.cards.map(c => `<div class="row" style="align-items:flex-start"><span class="main" style="white-space:normal"><b style="white-space:normal">${esc(c.front)}</b><span style="white-space:normal">${esc(c.back)}</span></span><span class="card-when"><span class="boxes">${[1, 2, 3, 4].map(b => `<i class="${c.box >= b ? 'on' : ''}"></i>`).join('')}</span><small>${Progress.isNew(c) ? 'neu' : Progress.isDue(c) ? 'fällig' : Progress.whenText(c.due)}</small></span></div>`).join('')}</div>
     <div class="btn-row"><button class="btn primary" data-close>Schließen</button></div>`, { wide: true });
 }
 
@@ -976,6 +1204,7 @@ function runExam(set, subj, alive, timed) {
     const score = results.reduce((s, r) => s + r.points, 0);
     const max = qs.reduce((s, q) => s + q.points, 0);
     const attempt = { date: Date.now(), seconds, results, score, max, overall };
+    Progress.logActivity(answers.filter(a => a !== null && a !== '').length, set.subjectId);
     set.attempts = [...(set.attempts || []), attempt];
     await db.put('sets', set);
     if (alive()) examResult(set, subj, alive, attempt);
@@ -1055,14 +1284,16 @@ function viewPlan(set, subj) {
   const done = steps.filter(s => s.done).length;
   setChatContext({ subjectId: set.subjectId, label: subj?.name, detail: () => `beim Lernplan „${set.title}“` });
   const actName = { summary: 'Zusammenfassung', cards: 'Karteikarten', exam: 'Übungsklausur', review: 'Wiederholen' };
+  const todayKey = Progress.dayKey();
   app.innerHTML = `<div class="screen">${setTopbar(set, subj)}
     <section class="hero"><h1>${esc(set.title)}</h1><p>${esc(set.data.overview)}</p></section>
+    ${(() => { const ps = planStatus([set]); if (!ps || ps.done === steps.length) return ''; return `<div class="notice ${ps.behind ? 'warn' : ''}" style="margin-bottom:14px">${icon(ps.behind ? 'info' : 'check')}<div>${ps.daysLeft != null && ps.daysLeft >= 0 ? `<b>${ps.daysLeft ? `Noch ${ps.daysLeft} ${ps.daysLeft === 1 ? 'Tag' : 'Tage'} bis zur Prüfung.` : 'Heute ist die Prüfung!'}</b> ` : ''}${ps.behind ? `${ps.behind} ${ps.behind === 1 ? 'Schritt ist' : 'Schritte sind'} überfällig.` : 'Du liegst im Plan.'}</div></div>`; })()}
     <div class="fc-stats" style="max-width:none;margin-bottom:16px"><div class="progress"><i style="width:${done / steps.length * 100}%"></i></div><span>${done}/${steps.length}</span></div>
     <div class="stack">${steps.map((s, i) => `<div class="card plan-step ${s.done ? 'done' : ''}">
       <button class="num" data-act="toggle" data-i="${i}" aria-label="Erledigt">${s.done ? '✓' : i + 1}</button>
       <div class="main"><b>${esc(s.title)}</b><p>${esc(s.description)}</p>
-        <span class="tag">${esc(s.day)}</span><span class="tag">${s.minutes} Min</span><span class="tag">${actName[s.activity] || ''}</span>
-        ${!s.done && s.activity !== 'review' ? `<div style="margin-top:10px"><button class="btn small" data-act="do" data-i="${i}">${icon(TYPES[s.activity]?.icon || 'play')} Los geht's</button></div>` : ''}
+        <span class="tag ${!s.done && s.date && s.date < todayKey ? 'late' : !s.done && s.date === todayKey ? 'now' : ''}">${esc(s.day)}${!s.done && s.date && s.date < todayKey ? ' · überfällig' : !s.done && s.date === todayKey ? ' · heute' : ''}</span><span class="tag">${s.minutes} Min</span><span class="tag">${actName[s.activity] || ''}</span>
+        ${!s.done ? `<div style="margin-top:10px"><button class="btn small" data-act="do" data-i="${i}">${icon(TYPES[s.activity]?.icon || 'refresh')} ${s.activity === 'review' ? 'Wiederholen' : 'Los geht\'s'}</button></div>` : ''}
       </div></div>`).join('')}</div>
   </div>`;
   actions = {
@@ -1076,6 +1307,7 @@ function viewPlan(set, subj) {
     },
     do: d => {
       const s = steps[d.i];
+      if (s.activity === 'review') return go('review', { subjectId: set.subjectId });
       go('builder', { subjectId: set.subjectId, type: s.activity, preset: { custom: s.topic } });
     },
   };
@@ -1183,7 +1415,7 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 14</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 15</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
       <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>
@@ -1199,6 +1431,11 @@ async function viewSettings() {
       <div class="field"><label for="model">Modell</label><select class="input" id="model" ${AI.sharedMode() ? 'disabled' : ''}>${AI.sharedMode() ? '<option>Claude Haiku 5.5 – gemeinsamer Zugang</option>' : AI.MODELS.map(m => `<option value="${m.id}" ${m.id === s.model ? 'selected' : ''}>${m.name} – ${m.note}</option>`).join('')}</select>${AI.sharedMode() ? '<p class="muted" style="font-size:13px;margin:6px 0 0">Mit dem gemeinsamen Zugang wird immer das günstige Modell Haiku genutzt. Andere Modelle gibt es nur mit eigenem Schlüssel.</p>' : ''}</div>
       <div class="btn-row"><button class="btn primary" data-act="saveKey">Speichern</button><button class="btn" data-act="test">Verbindung testen</button></div>
       ${usageLine()}
+    </div>
+    <div class="card mt">
+      <h2 style="font-size:18px;margin-bottom:6px">🔥 Tagesziel & Erinnerung</h2>
+      <p class="muted" style="margin-top:0;font-size:15px">Ziel: ${Progress.loadProgress().goal} Karten oder Fragen pro Tag · Serie: ${Progress.streak().days} ${Progress.streak().days === 1 ? 'Tag' : 'Tage'}${Progress.loadProgress().reminder.on ? ` · Erinnerung um ${esc(Progress.loadProgress().reminder.time)} Uhr` : ''}</p>
+      <button class="btn" data-act="goal">Tagesziel einstellen</button>
     </div>
     <div class="card mt">
       <h2 style="font-size:18px;margin-bottom:10px">🌗 Design</h2>
@@ -1225,6 +1462,7 @@ async function viewSettings() {
   actions = {
     back: () => back(),
     install: installHelp,
+    goal: goalDialog,
     setTheme: d => {
       setTheme(d.v);
       app.querySelectorAll('#themeSeg button').forEach(b => b.classList.toggle('on', b.dataset.v === d.v));
@@ -1292,6 +1530,93 @@ async function llmSettings(box) {
   draw();
 }
 
+// ===== Teilen =====
+async function shareDialog(set, subj) {
+  const pack = Share.packSet(set, subj);
+  const what = set.type === 'cards' ? `${set.data.cards.length} Karteikarten` : TYPES[set.type].name;
+  let link = null;
+  try { link = await Share.shareLink(pack); } catch { /* dann nur als Datei */ }
+  const linkOk = link && link.length <= Share.MAX_LINK;
+  const m = openModal(`<h2>${esc(set.title)} teilen</h2>
+    <p class="muted" style="margin-top:-6px">${what}, ganz ohne Konto. Deine Freunde brauchen nur den Lernomat. Dein eigener Lernfortschritt wird nicht mitgeschickt.</p>
+    <div class="list">
+      ${linkOk ? `<button class="row tap" data-s="link"><span class="ico">${icon('share')}</span><span class="main"><b>Link teilen</b><span>per Nachricht, Mail oder AirDrop. Der Inhalt steckt im Link selbst.</span></span></button>
+      <button class="row tap" data-s="copy"><span class="ico">${icon('edit')}</span><span class="main"><b>Link kopieren</b></span></button>` : ''}
+      <button class="row tap" data-s="file"><span class="ico">${icon('download')}</span><span class="main"><b>Als Datei teilen</b><span>${linkOk ? 'gut für große Sets' : 'Das Set ist zu groß für einen Link.'}</span></span></button>
+      ${set.type === 'cards' ? `<button class="row tap" data-s="text"><span class="ico">${icon('summary')}</span><span class="main"><b>Als Text kopieren</b><span>Frage und Antwort mit Tab getrennt, z. B. für Anki oder Quizlet</span></span></button>` : ''}
+    </div>
+    <p class="muted" style="font-size:13px">So kommt es an: Link antippen oder die Datei öffnen. Wer den Lernomat als App auf dem Home-Bildschirm nutzt, kopiert den Link und fügt ihn im Fach unter ⋯ → „Geteiltes Lernset importieren“ ein.</p>
+    <div class="btn-row"><button class="btn" data-close>Schließen</button></div>`);
+  const on = (k, fn) => m.el.querySelector(`[data-s="${k}"]`)?.addEventListener('click', fn);
+  const copy = async text => {
+    try { await navigator.clipboard.writeText(text); toast('Kopiert'); } catch { toast('Kopieren hat nicht geklappt.'); }
+  };
+  on('link', async () => {
+    if (navigator.share) { try { await navigator.share({ title: `Lernomat: ${set.title}`, text: `${what} aus dem Lernomat: ${set.title}`, url: link }); m.close(); } catch { /* abgebrochen */ } } else copy(link);
+  });
+  on('copy', () => copy(link));
+  on('file', async () => { await saveOrShare(Share.packFile(pack)); });
+  on('text', () => copy(set.data.cards.map(c => `${c.front.replace(/\s+/g, ' ')}\t${c.back.replace(/\s+/g, ' ')}`).join('\n')));
+}
+
+// Fragt, in welches Fach ein geteiltes Set soll, und speichert es.
+async function importPack(pack, subjectId = null) {
+  const subjects = await db.all('subjects');
+  const save = async sid => {
+    const set = Share.unpackSet(pack, sid);
+    await db.put('sets', set);
+    sfx('done');
+    toast(`Importiert: ${set.title}`);
+    go('set', { id: set.id });
+  };
+  if (subjectId) return save(subjectId);
+  const name = pack.subject?.name || '';
+  const match = subjects.find(s => s.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
+  const what = pack.type === 'cards' ? `${pack.data?.cards?.length || 0} Karteikarten` : TYPES[pack.type]?.name || 'Lernset';
+  const m = openModal(`<h2>Geteiltes Lernset</h2>
+    <div class="card" style="margin-bottom:12px"><b>${esc(pack.title)}</b><br><span class="muted">${esc(what)}${name ? ` · ${esc(pack.subject.emoji || '')} ${esc(name)}` : ''}</span></div>
+    <p class="muted" style="margin:0 0 8px">In welches Fach soll es?</p>
+    <div class="list">
+      ${!match ? `<button class="row tap" data-new><span class="ico">${icon('plus')}</span><span class="main"><b>Neues Fach${name ? ` „${esc(name)}“` : ''}</b></span></button>` : ''}
+      ${subjects.map(s => `<button class="row tap" data-s="${s.id}"><span class="ico" style="background:${s.color}22;font-size:20px">${s.emoji}</span><span class="main"><b>${esc(s.name)}</b></span></button>`).join('')}
+    </div>
+    ${!standalone && /iPhone|iPad/.test(navigator.userAgent) ? '<p class="muted" style="font-size:13px">Nutzt du den Lernomat als App auf dem Home-Bildschirm? Dann kopiere den Link und füge ihn dort im Fach unter ⋯ → „Geteiltes Lernset importieren“ ein. Safari und die App haben getrennte Speicher.</p>' : ''}
+    <div class="btn-row"><button class="btn" data-close>Abbrechen</button></div>`);
+  m.el.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', () => { m.close(); save(b.dataset.s).catch(err => toast(err.message, 4500)); }));
+  m.el.querySelector('[data-new]')?.addEventListener('click', async () => {
+    m.close();
+    const subj = { id: uid(), name: name || 'Geteilt', emoji: pack.subject?.emoji || EMOJIS[0], color: pack.subject?.color || COLORS[0], created: Date.now() };
+    await db.put('subjects', subj);
+    save(subj.id).catch(err => toast(err.message, 4500));
+  });
+}
+
+// Link einfügen oder Datei wählen.
+function importSetDialog(subjectId) {
+  const m = openModal(`<h2>Lernset importieren</h2>
+    <p class="muted" style="margin-top:-6px">Füge einen geteilten Lernomat-Link ein oder wähle eine geteilte Datei (.lernomat.json).</p>
+    <form id="impForm"><div class="field"><textarea class="input" id="impLink" rows="3" placeholder="https://…#teilen=…"></textarea></div>
+      <div class="btn-row"><button type="button" class="btn" id="impFile">${icon('upload')} Datei wählen</button><button class="btn primary" type="submit">Importieren</button></div></form>
+    <div class="btn-row"><button class="btn" data-close>Abbrechen</button></div>`);
+  m.el.querySelector('#impForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const v = m.el.querySelector('#impLink').value.trim();
+    const code = (new RegExp(`${Share.SHARE_PARAM}=([A-Za-z0-9_-]+)`).exec(v) || [])[1];
+    if (!code) { toast('Das ist kein Lernomat-Link.'); return; }
+    try { const pack = await Share.decodePack(code); m.close(); await importPack(pack, subjectId); } catch (err) { toast('Import fehlgeschlagen: ' + err.message, 4500); }
+  });
+  m.el.querySelector('#impFile').addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json,application/json';
+    input.addEventListener('change', async () => {
+      try { const pack = JSON.parse(await input.files[0].text()); m.close(); await importPack(pack, subjectId); } catch (err) { toast('Import fehlgeschlagen: ' + err.message, 4500); }
+    });
+    input.click();
+  });
+}
+
 async function exportBackup() {
   toast('Sicherung wird erstellt …');
   const { blobToBase64 } = await import('./files.js');
@@ -1319,6 +1644,7 @@ function importBackup() {
   input.addEventListener('change', async () => {
     try {
       const data = JSON.parse(await input.files[0].text());
+      if (data.app === 'lernomat-set') return importPack(data);
       if (data.app !== 'lernomat') throw new Error('Das ist keine Lernomat-Sicherung.');
       for (const s of data.subjects) await db.put('subjects', s);
       for (const s of data.sets) await db.put('sets', s);
@@ -1352,3 +1678,21 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 history.replaceState({ view: 'splash', params: {} }, '');
 viewSplash();
+
+// Geteilter Link: nach dem Startbildschirm fragen, wohin das Set soll.
+let pendingShare = Share.packFromLocation().catch(err => { toast('Der geteilte Link ist kaputt: ' + err.message, 5000); return null; });
+async function takePendingShare() {
+  const p = await pendingShare;
+  pendingShare = Promise.resolve(null);
+  if (p) importPack(p);
+}
+window.addEventListener('hashchange', () => {
+  pendingShare = Share.packFromLocation().catch(() => null);
+  if (history.state?.view !== 'splash') takePendingShare();
+});
+
+// Tagesziel geschafft: kurz feiern. Erinnerung für heute planen.
+Progress.onGoalReached(days => {
+  setTimeout(() => { sfx('done'); owlFlyBy(); toast(`🎉 Tagesziel geschafft!${days > 1 ? ` ${days} Tage in Folge 🔥` : ''}`, 3500); }, 300);
+});
+Progress.scheduleReminder();

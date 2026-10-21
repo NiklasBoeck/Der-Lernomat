@@ -3,6 +3,7 @@ import { esc } from './markdown.js';
 import { owlSVG } from './owl.js';
 import { sfx } from './audio.js';
 import { shuffle } from './ui.js';
+import { logActivity } from './progress.js';
 
 const ROUND = 60;
 const hsKey = id => 'lernomat.game.' + id;
@@ -104,6 +105,7 @@ export function startGame(box, { subj, pairs, onExit }) {
     if (locked) return;
     locked = true;
     total++;
+    logActivity(1, subj.id);
     const btns = box.querySelectorAll('.game-opt');
     const owl = box.querySelector('#gOwl .owl-svg');
     const cheer = box.querySelector('#gCheer');

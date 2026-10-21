@@ -1,10 +1,10 @@
 // Service Worker: macht den Lernomat offline nutzbar.
-const VERSION = 'lernomat-v14';
+const VERSION = 'lernomat-v15';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/vendor/anthropic-sdk-0.131.0.min.js', 'js/vendor/jszip-3.10.1.min.js',
   'js/vendor/pdfjs-4.10.38.min.mjs', 'js/vendor/pdfjs-4.10.38.worker.min.mjs', 'js/viewer.js',
-  'js/app.js', 'js/ai.js', 'js/config.js', 'js/audio.js', 'js/chat.js', 'js/db.js', 'js/files.js', 'js/markdown.js', 'js/prompts.js', 'js/ui.js', 'js/owl.js', 'js/game.js',
+  'js/app.js', 'js/ai.js', 'js/config.js', 'js/audio.js', 'js/chat.js', 'js/db.js', 'js/files.js', 'js/markdown.js', 'js/prompts.js', 'js/ui.js', 'js/owl.js', 'js/game.js', 'js/progress.js', 'js/share.js',
   'js/lena/text.js', 'js/lena/engine.js', 'js/lena/assistant.js', 'js/lena/llm.js', 'js/lena/llm-worker.js',
   'js/lena/ocr.js', 'js/lena/tips.js', 'js/lena/enhance.js',
   'icons/favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
@@ -40,4 +40,13 @@ self.addEventListener('fetch', e => {
     if (res.ok) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(req, copy)); }
     return res;
   }).catch(() => caches.match(req).then(hit => hit || caches.match('index.html'))));
+});
+
+// Tipp auf die Erinnerung: App öffnen oder nach vorn holen.
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+    const open = list.find(c => c.url.startsWith(self.registration.scope));
+    return open ? open.focus() : self.clients.openWindow(self.registration.scope);
+  }));
 });
