@@ -1,9 +1,10 @@
-// Nomi liest mit: Text aus den Unterlagen holen, in Absätze, Sätze und Abschnitte teilen und durchsuchen.
+// Lena liest mit: Text aus den Unterlagen holen, in Absätze, Sätze und Abschnitte teilen und durchsuchen.
 // Alles läuft auf dem Gerät, ohne Internet und ohne Kosten.
 import { db } from '../db.js';
 import { loadPdfjs } from '../viewer.js';
+import { readImage, readPdfPages } from './ocr.js';
 
-export const STOP = new Set(`aber alle allem allen aller alles als also am an andere anderem anderen anderer anderes auch auf aus bei beim bin bis bist da dabei dadurch dafuer dagegen daher damit dann daran darauf daraus darf darin darum das dass dein deine dem den denn der deren des dessen deshalb die dies diese diesem diesen dieser dieses doch dort du durch ein eine einem einen einer eines einige einigen einmal er es etwa etwas euch euer fuer gegen gibt hab habe haben hat hatte haette hier hin hinter ich ihm ihn ihnen ihr ihre ihren im immer in ins ist ja je jede jedem jeden jeder jedes jedoch jetzt kann kein keine keinen koennen koennte man manche mehr mein meine mich mir mit muss muessen nach neben nicht nichts noch nun nur ob oder ohne sehr seid sein seine seinen seit sich sie sind so solche soll sollen sollte sondern sonst sowie ueber um und uns unser unter viel viele vom von vor wann war waren warum was weil welche welchem welchen welcher welches wenn wer werde werden wie wieder wieso will wir wird wo wobei wurde wurden zu zum zur zwar zwei drei zwischen bzw usw etc ggf evtl bitte mal einfach genau eigentlich erklaer erklaere erklaeren erklaert nochmal frage fragen gib gibt zeig zeige stell stelle bedeutet bedeutung versteht verstehen verstehe definition definiere wichtig wichtige wichtigste wichtigsten beispiel beispiele finde finden findet steht stehen skript unterlagen datei seite seiten thema themen kapitel lernomat nomi kurz kurze ganz gerade hallo hey danke bitte okay also kannst koenntest moechte wuerde mach mache sag sage the and for with that this from are was were have has not you your can will what which who how why when where`.split(/\s+/));
+export const STOP = new Set(`aber alle allem allen aller alles als also am an andere anderem anderen anderer anderes auch auf aus bei beim bin bis bist da dabei dadurch dafuer dagegen daher damit dann daran darauf daraus darf darin darum das dass dein deine dem den denn der deren des dessen deshalb die dies diese diesem diesen dieser dieses doch dort du durch ein eine einem einen einer eines einige einigen einmal er es etwa etwas euch euer fuer gegen gibt hab habe haben hat hatte haette hier hin hinter ich ihm ihn ihnen ihr ihre ihren im immer in ins ist ja je jede jedem jeden jeder jedes jedoch jetzt kann kein keine keinen koennen koennte man manche mehr mein meine mich mir mit muss muessen nach neben nicht nichts noch nun nur ob oder ohne sehr seid sein seine seinen seit sich sie sind so solche soll sollen sollte sondern sonst sowie ueber um und uns unser unter viel viele vom von vor wann war waren warum was weil welche welchem welchen welcher welches wenn wer werde werden wie wieder wieso will wir wird wo wobei wurde wurden zu zum zur zwar zwei drei zwischen bzw usw etc ggf evtl bitte mal einfach genau eigentlich erklaer erklaere erklaeren erklaert nochmal frage fragen gib gibt zeig zeige stell stelle bedeutet bedeutung versteht verstehen verstehe definition definiere wichtig wichtige wichtigste wichtigsten beispiel beispiele finde finden findet steht stehen skript unterlagen datei seite seiten thema themen kapitel lernomat lena nomi karte karten genauer naeher denkanstoss tipp gedanke kurz kurze ganz gerade hallo hey danke bitte okay also kannst koenntest moechte wuerde mach mache sag sage the and for with that this from are was were have has not you your can will what which who how why when where`.split(/\s+/));
 
 // Kleinbuchstaben, ohne Akzente (ä → a), ß → ss: so findet „Bewaesserung“ auch „Bewässerung“.
 export const fold = s => String(s || '').toLowerCase().replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue')
@@ -122,6 +123,14 @@ async function readPdf(f) {
     pages.push(norm.map(l => l.t).join('\n').replace(/\n\s*\n+/g, '\n').trim());
     allLines.push(...norm.filter(l => l.t));
   }
+  // Eingescannt (kaum Text): Seiten per Texterkennung lesen.
+  if (pages.join('').length / Math.max(1, pages.length) < 60) {
+    try {
+      const ocr = await readPdfPages(doc, f.name);
+      doc.destroy();
+      return { pages: ocr, heads: [], ocr: true };
+    } catch (err) { console.warn('Texterkennung fehlgeschlagen', err); }
+  }
   doc.destroy();
   // Typische Schriftgröße des Fließtexts; deutlich größere, kurze Zeilen sind Überschriften.
   const sizes = allLines.flatMap(l => Array(Math.min(l.t.length, 200)).fill(Math.round(l.h * 10) / 10)).sort((a, b) => a - b);
@@ -137,10 +146,11 @@ async function readPdf(f) {
 }
 
 async function pdfData(f) {
-  if (Array.isArray(f.pages) && Array.isArray(f.heads)) return { pages: f.pages, heads: f.heads };
+  const thin = p => p.join('').length / Math.max(1, p.length) < 60;
+  if (Array.isArray(f.pages) && Array.isArray(f.heads) && (f.ocr || !thin(f.pages))) return { pages: f.pages, heads: f.heads };
   const d = await readPdf(f);
   f.pages = d.pages; f.heads = d.heads;
-  try { const rec = await db.get('files', f.id); if (rec) await db.put('files', { ...rec, pages: d.pages, heads: d.heads }); } catch { /* nur Zwischenspeicher */ }
+  try { const rec = await db.get('files', f.id); if (rec) await db.put('files', { ...rec, pages: d.pages, heads: d.heads, ocr: !!d.ocr }); } catch { /* nur Zwischenspeicher */ }
   return d;
 }
 
@@ -166,11 +176,19 @@ export async function corpusOf(f) {
       if (pages.join('').length / Math.max(1, pages.length) < 60) c.readable = false;
     } else if (f.kind === 'text') {
       for (const p of paragraphs(f.text || '')) c.paras.push({ ...p, page: null });
+    } else if (f.kind === 'image' && f.blob) {
+      // Fotos (z. B. von Notizen): einmal Text erkennen und am Gerät merken.
+      if (typeof f.ocrText !== 'string') {
+        f.ocrText = await readImage(f.blob, `Lena liest das Foto „${f.name}“ …`);
+        try { const rec = await db.get('files', f.id); if (rec) await db.put('files', { ...rec, ocrText: f.ocrText }); } catch { /* nur Zwischenspeicher */ }
+      }
+      for (const p of paragraphs(f.ocrText)) c.paras.push({ ...p, page: null, char: null });
+      if (f.ocrText.length < 20) c.readable = false;
     } else {
       c.readable = false;
     }
   } catch (err) {
-    console.warn('Nomi konnte die Datei nicht lesen', f.name, err);
+    console.warn('Lena konnte die Datei nicht lesen', f.name, err);
     c.readable = false;
   }
   build(c);

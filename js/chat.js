@@ -1,9 +1,9 @@
-// „Frag Nomi“: der Lernassistent ist von jedem Bildschirm aus mit einem Klick erreichbar.
-// Ohne Cloud-KI (CLOUD_AI = false) antwortet Nomi direkt auf dem Gerät, sonst Claude über die API.
+// „Frag Lena“: die Lernassistentin ist von jedem Bildschirm aus mit einem Klick erreichbar.
+// Ohne Cloud-KI (CLOUD_AI = false) antwortet Lena direkt auf dem Gerät, sonst Claude über die API.
 import { db } from './db.js';
 import { CLOUD_AI } from './config.js';
-import * as Nomi from './nomi/assistant.js';
-import * as LLM from './nomi/llm.js';
+import * as Lena from './lena/assistant.js';
+import * as LLM from './lena/llm.js';
 import { icon, openModal, toast } from './ui.js';
 import { esc, renderMarkdown } from './markdown.js';
 import { filesToBlocks } from './files.js';
@@ -29,8 +29,8 @@ export function initChat(opts) {
   openFile = opts.openFile;
   fab = document.createElement('button');
   fab.className = 'fab';
-  fab.setAttribute('aria-label', CLOUD_AI ? 'KI fragen' : 'Nomi fragen');
-  fab.innerHTML = CLOUD_AI ? `${icon('chat')}<span>KI fragen</span>` : `<span class="owl" aria-hidden="true">🦉</span><span>Nomi fragen</span>`;
+  fab.setAttribute('aria-label', CLOUD_AI ? 'KI fragen' : 'Lena fragen');
+  fab.innerHTML = CLOUD_AI ? `${icon('chat')}<span>KI fragen</span>` : `<span class="owl" aria-hidden="true">🦉</span><span>Lena fragen</span>`;
   fab.hidden = true;
   fab.addEventListener('click', openChat);
   document.body.appendChild(fab);
@@ -74,7 +74,7 @@ function toParts(blocks, files) {
   });
 }
 
-const NOMI_SUGGESTIONS = [
+const LENA_SUGGESTIONS = [
   'Was ist …',
   'Wo steht etwas zu …',
   'Was ist besonders wichtig?',
@@ -95,12 +95,12 @@ async function openChat() {
   const subjectId = ctx?.subjectId || null;
   const history = loadHistory(subjectId);
   let offMode = null;
-  const suggestions = (CLOUD_AI ? ctx?.suggestions : ctx?.nomiSuggestions) || (CLOUD_AI ? DEFAULT_SUGGESTIONS : NOMI_SUGGESTIONS);
+  const suggestions = (CLOUD_AI ? ctx?.suggestions : ctx?.lenaSuggestions) || (CLOUD_AI ? DEFAULT_SUGGESTIONS : LENA_SUGGESTIONS);
   const m = openModal(`<div class="chat">
-      <div class="chat-head">${CLOUD_AI ? '' : '<span class="nomi-face" aria-hidden="true">🦉</span>'}<div><h2 style="margin:0">${CLOUD_AI ? 'Frag den Lernomat' : 'Nomi'}</h2>
+      <div class="chat-head">${CLOUD_AI ? '' : '<span class="lena-face" aria-hidden="true">🦉</span>'}<div><h2 style="margin:0">${CLOUD_AI ? 'Frag den Lernomat' : 'Lena'}</h2>
         <small class="muted">${CLOUD_AI ? (ctx?.label ? `Kennt deine Unterlagen in „${esc(ctx.label)}“` : 'Allgemeine Fragen zum Lernen')
-          : `Dein Lernassistent · kennt ${ctx?.label ? `„${esc(ctx.label)}“` : 'alle deine Unterlagen'}`}</small>
-        ${CLOUD_AI ? '' : '<small class="nomi-mode" id="nomiMode"></small>'}</div>
+          : `Deine Lernassistentin · kennt ${ctx?.label ? `„${esc(ctx.label)}“` : 'alle deine Unterlagen'}`}</small>
+        ${CLOUD_AI ? '' : '<small class="lena-mode" id="lenaMode"></small>'}</div>
         <button class="icon-btn plain" data-clear aria-label="Verlauf löschen" title="Verlauf löschen">${icon('trash')}</button>
         <button class="icon-btn plain" data-close aria-label="Schließen">${icon('close')}</button></div>
       <div class="chat-log" id="chatLog"></div>
@@ -118,7 +118,7 @@ async function openChat() {
   const draw = () => {
     log.innerHTML = history.length ? history.map((h, i) => bubble(h, i)).join('')
       : CLOUD_AI ? `<div class="empty"><div class="big">💬</div>Frag mich alles zu deinem Lernstoff: Erklärungen, Beispiele, Eselsbrücken oder Übungsfragen.</div>`
-      : `<div class="empty"><div class="big">🦉</div>Hallo, ich bin Nomi! Frag mich etwas zu deinen Unterlagen. Ich antworte mit Links, die direkt zur Stelle im Skript springen.</div>`;
+      : `<div class="empty"><div class="big">🦉</div>Hallo, ich bin Lena! Frag mich etwas zu deinen Unterlagen. Ich antworte mit Links, die direkt zur Stelle im Skript springen.</div>`;
     sugg.innerHTML = history.length ? '' : suggestions.map(s => `<button type="button" class="chip">${esc(s)}</button>`).join('');
     // Vorschläge mit „…“ füllen nur das Eingabefeld, die anderen werden direkt gesendet.
     sugg.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
@@ -127,7 +127,7 @@ async function openChat() {
     log.scrollTop = log.scrollHeight;
   };
 
-  // Nomi: Antwort direkt auf dem Gerät.
+  // Lena: Antwort direkt auf dem Gerät.
   const sendLocal = async q => {
     busy = true;
     text.value = '';
@@ -141,8 +141,8 @@ async function openChat() {
     try {
       const files = subjectId ? await db.bySubject('files', subjectId) : await db.all('files');
       files.sort((a, b) => a.added - b.added);
-      const res = await Nomi.answer({
-        question: q, files, history, detail: ctx?.detail ? ctx.detail() : '', here: ctx?.here ? ctx.here() : null,
+      const res = await Lena.answer({
+        question: q, files, history, detail: ctx?.detail ? ctx.detail() : '', here: ctx?.here ? ctx.here() : null, noSolutions: !!ctx?.noSolutions,
         onText: snap => { live.innerHTML = renderMarkdown(snap.replace(/\s*\[\d+(?:\s*[,;]\s*\d+)*\]/g, '')).html; log.scrollTop = log.scrollHeight; },
       });
       history.push({ role: 'assistant', content: res.parts.map(p => p.text).join(''), parts: res.parts, quiz: res.quiz });
@@ -213,7 +213,7 @@ async function openChat() {
     draw();
   });
   if (!CLOUD_AI) {
-    const mode = m.el.querySelector('#nomiMode');
+    const mode = m.el.querySelector('#lenaMode');
     const show = () => {
       const st = LLM.status();
       mode.innerHTML = st.state === 'ready' ? '✨ Denk-Modus an'

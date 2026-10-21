@@ -1,5 +1,5 @@
-// Nomis Denk-Modus: ein kleines Sprachmodell, das direkt im Browser läuft (WebLLM, braucht WebGPU).
-// Einmal herunterladen, danach offline nutzbar. Ohne Denk-Modus arbeitet Nomi trotzdem, nur einfacher.
+// Lenas Denk-Modus: ein kleines Sprachmodell, das direkt im Browser läuft (WebLLM, braucht WebGPU).
+// Einmal herunterladen, danach offline nutzbar. Ohne Denk-Modus arbeitet Lena trotzdem, nur einfacher.
 const LIB = '../vendor/web-llm-0.2.86.min.js';
 const KEY = 'lernomat.llm';
 
