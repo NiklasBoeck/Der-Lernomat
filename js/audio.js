@@ -138,77 +138,46 @@ export function sfx(kind) {
   if (kind === 'done') ['C5', 'E5', 'G5', 'C6'].forEach((n, i) => mallet(freq(n), t + i * 0.09, 0.6, 0.18));
 }
 
-// ===== Stimme der Eule =====
-// Nutzt die eingebaute Sprachausgabe des Geräts (kostenlos, offline, ohne Konto).
-// Gewählt wird eine deutsche Frauenstimme; die höhere Tonlage macht sie niedlicher.
-const FEMALE = ['anna', 'petra', 'helena', 'katja', 'hedda', 'vicki', 'marlene', 'seraphina', 'amala', 'louisa', 'elke', 'sandy', 'shelley', 'google deutsch', 'female', 'weiblich'];
-const MALE = ['markus', 'yannick', 'stefan', 'martin', 'hans', 'conrad', 'killian', 'viktor', 'reed', 'rocko', 'eddy', 'grandpa', 'ralf', 'jonas', 'florian', 'male', 'männlich'];
-
-function germanVoice() {
-  const all = window.speechSynthesis.getVoices().filter(v => /^de([-_]|$)/i.test(v.lang));
-  const score = v => {
-    const n = v.name.toLowerCase();
-    let s = 0;
-    if (FEMALE.some(f => n.includes(f))) s += 10;
-    if (MALE.some(m => n.includes(m))) s -= 20;
-    if (/de[-_]de/i.test(v.lang)) s += 2;
-    if (/premium|enhanced|natural|neural|online/i.test(n)) s += 3;
-    if (v.localService) s += 1;
-    return s;
-  };
-  return all.sort((a, b) => score(b) - score(a))[0] || null;
-}
-
-function voicesReady() {
-  const ss = window.speechSynthesis;
-  if (ss.getVoices().length) return Promise.resolve();
-  return new Promise(res => {
-    const t = setTimeout(res, 1200);
-    ss.addEventListener('voiceschanged', () => { clearTimeout(t); res(); }, { once: true });
-  });
-}
-
-// Muss im Tipp-Ereignis laufen: iPhone gibt die Sprachausgabe erst nach einer Berührung frei.
-export function primeSpeech() {
-  if (!('speechSynthesis' in window)) return;
-  try {
-    const u = new SpeechSynthesisUtterance(' ');
-    u.volume = 0;
-    window.speechSynthesis.speak(u);
-  } catch { /* egal */ }
-}
-
-// Spricht den Text. Gibt false zurück, wenn keine Stimme verfügbar ist (Ton aus, alter Browser).
-export async function speak(text, { onstart, onend } = {}) {
-  if (!soundEnabled() || !('speechSynthesis' in window)) return false;
-  const ss = window.speechSynthesis;
-  await voicesReady();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'de-DE';
-  const v = germanVoice();
-  if (v) u.voice = v;
-  u.pitch = 1.6;
-  u.rate = 1.02;
-  u.volume = 1;
-  let ended = false;
-  const finish = () => {
-    if (ended) return;
-    ended = true;
-    if (master && ctx) master.gain.setTargetAtTime(0.55, ctx.currentTime, 0.25);
-    onend?.();
-  };
-  u.onstart = () => {
-    // Melodie leiser, solange die Eule spricht.
-    if (master && ctx) master.gain.setTargetAtTime(0.18, ctx.currentTime, 0.15);
-    onstart?.();
-  };
-  u.onend = finish;
-  u.onerror = finish;
-  ss.cancel();
-  ss.speak(u);
-  return true;
-}
-
 export function stopSpeaking() {
-  try { window.speechSynthesis?.cancel(); } catch { /* egal */ }
+  try { helloSrc?.stop(); } catch { /* egal */ }
+}
+
+// Begrüßung der Eule als fest eingebaute Aufnahme. Solange es keine Aufnahme gibt (HELLO_URL = null),
+// zeigt die Eule nur die Sprechblase. Später: Datei nach audio/ legen, hier eintragen und in sw.js aufnehmen.
+const HELLO_URL = null;
+let helloBuf = null;
+let helloSrc = null;
+
+async function helloBuffer() {
+  if (helloBuf) return helloBuf;
+  const res = await fetch(HELLO_URL);
+  if (!res.ok) throw new Error('Aufnahme fehlt');
+  const data = await res.arrayBuffer();
+  helloBuf = await new Promise((ok, fail) => ctx.decodeAudioData(data, ok, fail));
+  return helloBuf;
+}
+
+// Spielt die Begrüßung ab und wartet, bis sie fertig ist. false = kein Ton (aus oder gesperrt).
+export async function sayHello() {
+  if (!HELLO_URL || !soundEnabled()) return false;
+  const c = ensure();
+  if (c && c.state === 'running') {
+    try {
+      const buf = await helloBuffer();
+      helloSrc?.stop();
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      const g = c.createGain();
+      g.gain.value = 1;
+      src.connect(g).connect(c.destination);
+      // Melodie leiser, solange die Eule spricht.
+      master.gain.setTargetAtTime(0.18, c.currentTime, 0.1);
+      helloSrc = src;
+      await new Promise(res => { src.onended = res; src.start(); });
+      if (helloSrc === src) helloSrc = null;
+      master.gain.setTargetAtTime(0.55, c.currentTime, 0.25);
+      return true;
+    } catch { /* ohne Ton weiter */ }
+  }
+  return false;
 }

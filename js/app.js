@@ -3,7 +3,7 @@ import { db, uid, requestPersistence } from './db.js';
 import { icon, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
 import { renderPdf, renderText } from './viewer.js';
 import { esc, renderMarkdown } from './markdown.js';
-import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled, primeSpeech, speak, stopSpeaking } from './audio.js';
+import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled, sayHello, stopSpeaking } from './audio.js';
 import { ingestFile, filesToBlocks, fileBadge, formatSize, totalSize, CATEGORIES, ACCEPT } from './files.js';
 import * as AI from './ai.js';
 import * as PR from './prompts.js';
@@ -92,10 +92,7 @@ function viewSplash() {
       <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
       <button class="sound-pill" id="soundPill" hidden>${icon('volume')} Ton an</button>
       <button class="title-btn" id="titleBtn" aria-label="Der Lernomat öffnen">
-        <span class="owl-spot">
-          <span class="owl-bubble" id="owlBubble" aria-hidden="true"></span>
-          <span class="logo-mark owl-logo">${owlSVG({ cap: true })}</span>
-        </span>
+        <span class="logo-mark owl-logo">${owlSVG({ cap: true })}</span>
         <span class="title-text">${title}</span>
         <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Lena'}</span>
       </button>
@@ -116,32 +113,9 @@ function viewSplash() {
     pill.hidden = true;
     hint.textContent = 'Tippe auf den Titel, um loszulegen';
     setTimeout(playIntro, 250);
-    greetTimer = setTimeout(greet, 1300);
   };
-  // Die Eule winkt und sagt Hallo. Ohne Stimme (Ton aus) erscheint nur die Sprechblase.
-  const GREETING = 'Hallo, was möchtest du heute lernen?';
-  let greetTimer = 0;
-  const greet = async () => {
-    const owl = splash.querySelector('.owl-logo .owl-svg');
-    const bubble = document.getElementById('owlBubble');
-    if (!owl || !bubble) return;
-    bubble.textContent = GREETING;
-    bubble.classList.add('show');
-    owl.classList.add('waving');
-    const talk = on => owl.classList.toggle('talking', on);
-    let fallback = setTimeout(() => talk(false), 2600);
-    talk(true);
-    const spoken = await speak(GREETING, {
-      onstart: () => { clearTimeout(fallback); talk(true); },
-      onend: () => { clearTimeout(fallback); talk(false); },
-    });
-    // Manche Geräte melden das Ende nicht zuverlässig: dann nach spätestens 5 Sekunden aufhören.
-    if (spoken) { clearTimeout(fallback); fallback = setTimeout(() => talk(false), 5000); }
-  };
-  cleanups.push(() => { clearTimeout(greetTimer); stopSpeaking(); });
   const tryStart = async () => {
     if (started) return;
-    primeSpeech();
     await unlock();
     begin();
   };
@@ -167,6 +141,23 @@ function viewSplash() {
 }
 
 // ===== Hauptmenü =====
+// Beim ersten Öffnen des Menüs winkt die Eule und sagt Hallo (Tippen auf die Eule wiederholt es).
+let greeted = false;
+async function owlHello(box) {
+  const owl = box?.querySelector('.owl-svg');
+  if (!owl || owl.classList.contains('talking')) return;
+  owl.classList.remove('waving', 'happy');
+  void owl.getBoundingClientRect();
+  owl.classList.add('waving', 'talking');
+  box.parentElement.querySelector('.bubble')?.classList.add('speaking');
+  const stop = () => { owl.classList.remove('talking'); box.parentElement?.querySelector('.bubble')?.classList.remove('speaking'); };
+  // Ohne Aufnahme bewegt die Eule nur kurz den Schnabel.
+  const t = setTimeout(stop, 6000);
+  if (!(await sayHello())) { clearTimeout(t); setTimeout(stop, 2200); return; }
+  clearTimeout(t);
+  stop();
+}
+
 function greeting() {
   const h = new Date().getHours();
   if (h < 5) return 'Noch wach? 🌙';
@@ -203,7 +194,7 @@ async function viewHome() {
     ${topbar({ backTo: false, right: `<button class="icon-btn" data-act="theme" aria-label="Hell/Dunkel umschalten">${icon(applyTheme() ? 'sun' : 'moon')}</button><button class="icon-btn" data-act="settings" aria-label="Einstellungen">${icon('settings')}</button>` })}
     <section class="home-hero">
       <div class="home-owl" data-act="poke">${owlSVG({ cap: true })}</div>
-      <div class="bubble"><h1>${greeting()}</h1><p>${subjects.length ? 'Was möchtest du heute lernen?' : 'Ich bin die Lernomat-Eule. Leg dein erstes Fach an, dann legen wir los!'}</p></div>
+      <div class="bubble"><h1>${greeting()}</h1><p>${subjects.length ? 'Was möchtest du heute lernen?' : 'Was möchtest du heute lernen? Leg dein erstes Fach an, dann legen wir los!'}</p></div>
     </section>
     ${subjects.length ? `<div class="home-stats">${stats.map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join('')}</div>` : ''}
     ${subjects.length ? goalCard(dueInfo(sets)) : ''}
@@ -246,8 +237,14 @@ async function viewHome() {
     game: () => gameChooser(subjects),
     review: () => go('review', {}),
     goal: goalDialog,
-    poke: (_d, el) => { const o = el.querySelector('.owl-svg'); o.classList.remove('happy'); void o.getBoundingClientRect(); o.classList.add('happy'); sfx('tap'); },
+    poke: (_d, el) => owlHello(el),
   };
+  cleanups.push(stopSpeaking);
+  if (!greeted) {
+    greeted = true;
+    const box = app.querySelector('.home-owl');
+    setTimeout(() => { if (box.isConnected) owlHello(box); }, 650);
+  }
 }
 
 // Tagesziel, Serie und fällige Karten auf einen Blick.
@@ -1415,7 +1412,7 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 15</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 16</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
       <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>
