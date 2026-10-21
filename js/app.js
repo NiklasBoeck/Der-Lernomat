@@ -9,12 +9,13 @@ import * as AI from './ai.js';
 import * as PR from './prompts.js';
 import { initChat, setChatContext, showFab } from './chat.js';
 import { CLOUD_AI } from './config.js';
-import * as Nomi from './nomi/engine.js';
-import * as LLM from './nomi/llm.js';
+import * as Lena from './lena/engine.js';
+import * as LLM from './lena/llm.js';
+import { explainSummary, refineGrading } from './lena/enhance.js';
 
-// Ohne Cloud-KI ist Nomi immer bereit, ganz ohne Schlüssel.
+// Ohne Cloud-KI ist Lena immer bereit, ganz ohne Schlüssel.
 const aiReady = () => !CLOUD_AI || AI.hasKey();
-const KI = CLOUD_AI ? 'die KI' : 'Nomi';
+const KI = CLOUD_AI ? 'die KI' : 'Lena';
 
 const app = document.getElementById('app');
 let actions = {};
@@ -89,7 +90,7 @@ function viewSplash() {
       <button class="title-btn" id="titleBtn" aria-label="Der Lernomat öffnen">
         <span class="logo-mark">${LOGO}</span>
         <span class="title-text">${title}</span>
-        <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Nomi 🦉'}</span>
+        <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Lena 🦉'}</span>
       </button>
       <div class="tap-hint">Tippe auf den Titel, um loszulegen</div>
     </div>`;
@@ -455,7 +456,7 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
         <div class="chips">
           <button class="chip ${sel.topics.size === 0 ? 'on' : ''}" data-act="allTopics">Alles</button>
           ${topics ? topics.map(tp => `<button class="chip ${sel.topics.has(tp.title) ? 'on' : ''}" data-act="topic" data-t="${esc(tp.title)}" title="${esc(tp.description)}">${esc(tp.title)}</button>`).join('')
-            : topicsLoading ? `<span class="chip dashed">${CLOUD_AI ? 'KI erkennt' : 'Nomi sucht'} Themen …</span>` : ''}
+            : topicsLoading ? `<span class="chip dashed">${CLOUD_AI ? 'KI erkennt' : 'Lena sucht'} Themen …</span>` : ''}
           ${aiReady() && !topicsLoading ? `<button class="chip dashed" data-act="detect">${topics ? '↻ Themen neu erkennen' : '✨ Themen erkennen'}</button>` : ''}
         </div>
         <input class="input mt" id="custom" placeholder="Oder eigenes Thema, z. B. „Kapitel 3“ oder „Zellatmung“" value="${esc(sel.custom)}" style="margin-top:12px">
@@ -488,7 +489,7 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
     topicsLoading = true; draw();
     try {
       const res = CLOUD_AI ? await AI.generateJSON({ fileBlocks: await filesToBlocks(files), prompt: PR.topicsPrompt(), schema: AI.SCHEMAS.topics, maxTokens: 6000, effort: 'low' })
-        : await Nomi.topics(files);
+        : await Lena.topics(files);
       topics = res.topics;
       const fresh = await db.get('subjects', subjectId);
       await db.put('subjects', { ...fresh, topics, topicsKey: fileKey });
@@ -535,7 +536,7 @@ async function runGeneration({ subj, type, alive, focus, opts, files = [], extra
     <div id="live"></div></div>`;
   let busy = true;
   actions.back = async () => {
-    if (!busy || await confirmDialog((CLOUD_AI ? 'Die KI' : 'Nomi') + ' arbeitet noch. Wenn du zurückgehst, wird das Ergebnis trotzdem gespeichert.', { ok: 'Zurück', title: 'Zurückgehen?' })) back();
+    if (!busy || await confirmDialog((CLOUD_AI ? 'Die KI' : 'Lena') + ' arbeitet noch. Wenn du zurückgehst, wird das Ergebnis trotzdem gespeichert.', { ok: 'Zurück', title: 'Zurückgehen?' })) back();
   };
   let li = 0;
   const timer = setInterval(() => {
@@ -547,21 +548,26 @@ async function runGeneration({ subj, type, alive, focus, opts, files = [], extra
     let set;
     const base = { id: uid(), subjectId: subj.id, type, created: Date.now(), focus };
     if (!CLOUD_AI) {
-      // Nomi baut das Lernset direkt auf dem Gerät. Kurz warten, damit die Animation sichtbar wird.
+      // Lena baut das Lernset direkt auf dem Gerät. Kurz warten, damit die Animation sichtbar wird.
       const pseudo = extra.map((x, i) => ({ id: 'extra-' + i, name: x.title, kind: 'text', text: x.text, category: 'Zusammenfassung', size: x.text.length, added: 0 }));
       const src = [...files, ...pseudo];
       await new Promise(r => setTimeout(r, 600));
       if (type === 'summary') {
-        const md = await Nomi.summary(src, { focus, length: opts.length, name: subj.name });
+        let md = await Lena.summary(src, { focus, length: opts.length, name: subj.name });
+        // Im Denk-Modus erklärt das Sprachmodell jeden Abschnitt zusätzlich in einfachen Worten.
+        if (LLM.ready() && opts.length !== 'spickzettel') {
+          clearInterval(timer);
+          md = await explainSummary(md, t => { const el = document.getElementById('waitLine'); if (el) el.textContent = t; });
+        }
         set = { ...base, title: ((/^#\s+(.+)$/m.exec(md) || [])[1] || `Zusammenfassung ${subj.name}`).replace(/\*\*/g, ''), data: { markdown: md } };
       } else if (type === 'cards') {
-        const res = await Nomi.cards(extra.length && !files.length ? pseudo : src, { focus: extra.length ? [] : focus, count: opts.count, style: opts.style, name: subj.name });
+        const res = await Lena.cards(extra.length && !files.length ? pseudo : src, { focus: extra.length ? [] : focus, count: opts.count, style: opts.style, name: subj.name });
         set = { ...base, title: res.title, data: { cards: res.cards.map(c => ({ ...c, id: uid(), box: 0, seen: 0 })) } };
       } else if (type === 'exam') {
-        const res = await Nomi.exam(src, { focus, count: opts.count, kind: opts.kind, difficulty: opts.difficulty, name: subj.name });
+        const res = await Lena.exam(src, { focus, count: opts.count, kind: opts.kind, difficulty: opts.difficulty, name: subj.name });
         set = { ...base, title: res.title, data: { duration: res.duration_minutes, questions: res.questions }, attempts: [] };
       } else {
-        const res = await Nomi.plan(src, { focus, examDate: opts.examDate, perDay: opts.perDay, goal: opts.goal, name: subj.name });
+        const res = await Lena.plan(src, { focus, examDate: opts.examDate, perDay: opts.perDay, goal: opts.goal, name: subj.name });
         set = { ...base, title: res.title, data: { overview: res.overview, steps: res.steps.map(s => ({ ...s, done: false })) } };
       }
     } else {
@@ -691,6 +697,7 @@ function viewCards(set, subj, alive, mode = 'all') {
   setChatContext({
     subjectId: set.subjectId, label: subj?.name,
     detail: () => queue[0] ? `bei der Karteikarte „${queue[0].front}“ (Rückseite: „${queue[0].back}“)` : `beim Kartenstapel „${set.title}“`,
+    lenaSuggestions: ['Erklär mir diese Karte genauer.', 'Wo steht das im Skript?', 'Eselsbrücke dafür?', 'Frag mich ab!'],
   });
 
   const save = () => db.put('sets', set);
@@ -819,6 +826,8 @@ function runExam(set, subj, alive, timed) {
   setChatContext({
     subjectId: set.subjectId, label: subj?.name,
     detail: () => `beim Schreiben der Übungsklausur „${set.title}“. Wichtig: Verrate keine Lösungen der Klausur, gib höchstens Denkanstöße.`,
+    noSolutions: true,
+    lenaSuggestions: ['Gib mir einen Denkanstoß zu …', 'Wie kann ich ruhig bleiben?'],
   });
   app.innerHTML = `<div class="screen">${setTopbar(set, subj)}
     <div class="exam-head"><h2 style="flex:1">${esc(set.title)}</h2><span class="timer" id="timer">${icon('clock')}</span></div>
@@ -855,10 +864,10 @@ function runExam(set, subj, alive, timed) {
     const open = qs.map((q, i) => ({ ...q, index: i, answer: answers[i] })).filter(q => q.type === 'open');
     let overall = '';
     if (open.length) {
-      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}<div class="thinking"><div class="orb"></div><b>Deine Antworten werden korrigiert</b><p>${CLOUD_AI ? 'Die KI' : 'Nomi'} vergleicht deine Antworten mit der Musterlösung …</p></div></div>`;
+      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}<div class="thinking"><div class="orb"></div><b>Deine Antworten werden korrigiert</b><p>${CLOUD_AI ? 'Die KI' : 'Lena'} vergleicht deine Antworten mit der Musterlösung …</p></div></div>`;
       try {
         const g = CLOUD_AI ? await AI.generateJSON({ prompt: PR.gradingPrompt(open), schema: AI.SCHEMAS.grading, maxTokens: 8000, effort: 'low' })
-          : (await new Promise(r => setTimeout(r, 700)), Nomi.grade(open));
+          : await refineGrading(open, (await new Promise(r => setTimeout(r, 700)), Lena.grade(open)), t => { const el = app.querySelector('.thinking p'); if (el) el.textContent = t; });
         for (const r of g.results) {
           if (results[r.index] && qs[r.index].type === 'open') {
             results[r.index].points = Math.max(0, Math.min(qs[r.index].points, r.points_awarded));
@@ -940,7 +949,7 @@ function examResult(set, subj, alive, attempt) {
       const files = await db.bySubject('files', set.subjectId);
       const mistakes = qs.map((q, i) => ({ q, r: attempt.results[i] })).filter(x => x.r.points < x.q.points)
         .map(x => `- ${x.q.question}\n  Musterlösung: ${x.q.model_answer}`).join('\n');
-      // Für Nomi: die Musterlösungen als Lernstoff, daraus werden die Karten.
+      // Für Lena: die Musterlösungen als Lernstoff, daraus werden die Karten.
       const mistakesText = qs.map((q, i) => ({ q, r: attempt.results[i] })).filter(x => x.r.points < x.q.points).map(x => x.q.model_answer).join('\n\n');
       runGeneration({ subj, type: 'cards', alive, focus: weak, opts: { count: '20', style: 'gemischt' }, files: CLOUD_AI ? files : [], extra: [{ title: 'Meine Fehler in der Übungsklausur', text: CLOUD_AI ? mistakes : mistakesText }] });
     },
@@ -1018,7 +1027,7 @@ async function viewFile({ id, page, q, char }, alive) {
     subjectId: f.subjectId, label: subj?.name,
     detail: () => `beim Lesen der Datei „${f.name}“${pageInfo ? `, gerade auf ${pageInfo}` : ''}`,
     suggestions: ['Wo im Skript finde ich …', 'Erklär mir die Seite, die ich gerade lese.', 'Was ist in diesem Skript am wichtigsten?', 'Fass dieses Kapitel kurz zusammen.'],
-    nomiSuggestions: ['Fass die Seite zusammen, die ich gerade lese.', 'Was ist …', 'Wo steht etwas zu …', 'Was ist besonders wichtig?', 'Frag mich ab!'],
+    lenaSuggestions: ['Fass die Seite zusammen, die ich gerade lese.', 'Was ist …', 'Wo steht etwas zu …', 'Was ist besonders wichtig?', 'Frag mich ab!'],
     here: () => ({ fileId: f.id, page: curPage }),
   });
   actions = {
@@ -1081,12 +1090,12 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 11</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 12</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
-      <h2 style="font-size:18px;margin-bottom:6px">🦉 Nomi, dein Lernassistent</h2>
-      <p class="muted" style="margin-top:0;font-size:15px">Nomi arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Deine Dateien verlassen dein Gerät nie.</p>
+      <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
+      <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>
       <h3 style="font-size:16px;margin:16px 0 4px">✨ Denk-Modus (freiwillig)</h3>
-      <p class="muted" style="margin-top:0;font-size:15px">Im Denk-Modus lädt Nomi einmalig ein kleines Sprachmodell auf dein Gerät. Dann beantwortet Nomi Fragen im Chat in eigenen Worten statt mit Sätzen aus dem Skript. Das braucht ein neueres Gerät und für den Download am besten WLAN.</p>
+      <p class="muted" style="margin-top:0;font-size:15px">Im Denk-Modus lädt Lena einmalig ein kleines Sprachmodell auf dein Gerät. Dann beantwortet Lena Fragen im Chat in eigenen Worten (auch über deine Unterlagen hinaus), erklärt Zusammenfassungen in einfachen Worten und gibt genaueres Feedback in Übungsklausuren. Das braucht ein neueres Gerät und für den Download am besten WLAN.</p>
       <div id="llmBox"><p class="muted">Prüfe dein Gerät …</p></div>
     </div>`}
     <div class="card" ${CLOUD_AI ? '' : 'hidden'}>
@@ -1151,7 +1160,7 @@ async function llmSettings(box) {
   const sup = await LLM.checkSupport();
   if (!box.isConnected) return;
   if (!sup.ok) {
-    box.innerHTML = `<div class="notice">${icon('info')}<div>${esc(sup.why)} Nomi funktioniert trotzdem, nur im Schnell-Modus.</div></div>`;
+    box.innerHTML = `<div class="notice">${icon('info')}<div>${esc(sup.why)} Lena funktioniert trotzdem, nur im Schnell-Modus.</div></div>`;
     return;
   }
   llmPick ||= LLM.chosen() || (/iPhone|iPad|Android/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 ? LLM.MODELS[0].id : LLM.MODELS[1].id);
@@ -1163,11 +1172,11 @@ async function llmSettings(box) {
       box.innerHTML = `<div class="progress" style="margin:8px 0"><i style="width:${Math.round(st.progress.value * 100)}%"></i></div><p class="muted" style="margin:0;font-size:14px">${esc(st.progress.text)}</p>
         <p class="muted" style="font-size:13px">Du kannst die App dabei weiter benutzen. Lass sie nur geöffnet, bis der Download fertig ist.</p>`;
     } else if (st.state === 'ready') {
-      box.innerHTML = `<div class="notice">${icon('check')}<div><b>Denk-Modus ist an</b> (${esc(model.name)}). Nomi antwortet im Chat jetzt in eigenen Worten.</div></div>
+      box.innerHTML = `<div class="notice">${icon('check')}<div><b>Denk-Modus ist an</b> (${esc(model.name)}). Lena antwortet im Chat jetzt in eigenen Worten.</div></div>
         <div class="btn-row"><button class="btn danger" data-llm="remove">${icon('trash')} Sprachmodell löschen</button></div>`;
     } else if (st.model) {
       box.innerHTML = `${st.state === 'error' ? `<div class="notice" style="margin-bottom:10px">${icon('info')}<div>${esc(st.progress.text)}</div></div>` : ''}
-        <p style="margin:0 0 8px">Heruntergeladen: <b>${esc(model.name)}</b>. Es startet automatisch, wenn du Nomi fragst.</p>
+        <p style="margin:0 0 8px">Heruntergeladen: <b>${esc(model.name)}</b>. Es startet automatisch, wenn du Lena fragst.</p>
         <div class="btn-row"><button class="btn primary" data-llm="start">Jetzt starten</button><button class="btn danger" data-llm="remove">${icon('trash')} Löschen</button></div>`;
     } else {
       box.innerHTML = `${st.state === 'error' ? `<div class="notice" style="margin-bottom:10px">${icon('info')}<div>${esc(st.progress.text)}</div></div>` : ''}
@@ -1180,7 +1189,7 @@ async function llmSettings(box) {
       LLM.load(LLM.status().model || llmPick).then(() => { toast('✨ Denk-Modus ist bereit!'); sfx('good'); }).catch(() => {});
     });
     box.querySelector('[data-llm="remove"]')?.addEventListener('click', async () => {
-      if (!await confirmDialog('Das Sprachmodell wird vom Gerät gelöscht. Nomi arbeitet dann wieder im Schnell-Modus.', { ok: 'Löschen', danger: true })) return;
+      if (!await confirmDialog('Das Sprachmodell wird vom Gerät gelöscht. Lena arbeitet dann wieder im Schnell-Modus.', { ok: 'Löschen', danger: true })) return;
       await LLM.remove();
       toast('Sprachmodell gelöscht');
     });

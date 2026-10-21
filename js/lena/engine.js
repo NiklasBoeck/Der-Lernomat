@@ -1,10 +1,10 @@
-// Nomis Lern-Werkstatt: baut aus den Unterlagen Themen, Zusammenfassungen, Karteikarten, Übungsklausuren und Lernpläne.
-// Ohne Internet und ohne Sprachmodell: Nomi sucht Definitionen, Schlüsselbegriffe und Kernsätze direkt im Text.
+// Lenas Lern-Werkstatt: baut aus den Unterlagen Themen, Zusammenfassungen, Karteikarten, Übungsklausuren und Lernpläne.
+// Ohne Internet und ohne Sprachmodell: Lena sucht Definitionen, Schlüsselbegriffe und Kernsätze direkt im Text.
 import { fold, stem, words, contentWords, STOP, countTerm, queryTerms, clean, cleanLines, shorten, search, corpora, baseName } from './text.js';
 import { uid } from '../db.js';
 
-export class NomiError extends Error {
-  constructor(msg, code = 'nomi') { super(msg); this.code = code; }
+export class LenaError extends Error {
+  constructor(msg, code = 'lena') { super(msg); this.code = code; }
 }
 
 // ===== Definitionen =====
@@ -124,10 +124,7 @@ async function material(files, focus = []) {
   const cs = await corpora(files);
   const readable = cs.filter(c => c.readable && c.sents.length);
   if (!readable.length) {
-    const imgs = files.every(f => f.kind === 'image');
-    throw new NomiError(imgs
-      ? 'Fotos kann Nomi noch nicht lesen. Lade das Skript bitte als PDF, Word- oder Textdatei hoch.'
-      : 'In diesen Dateien hat Nomi keinen lesbaren Text gefunden. Eingescannte PDFs (nur Bilder) kann Nomi noch nicht lesen.');
+    throw new LenaError('In diesen Dateien konnte Lena keinen Text erkennen. Bei Fotos hilft ein scharfes, gerades Bild mit gutem Licht.');
   }
   const allPassages = readable.flatMap(c => c.passages);
   let sections = readable.flatMap(c => c.sections.filter(s => s.sents.length));
@@ -148,7 +145,7 @@ async function material(files, focus = []) {
     // Dazu die besten Suchtreffer.
     const terms = f.flatMap(x => queryTerms(x));
     for (const h of search(readable, terms, { limit: 14 })) h.sents.forEach(s => pick.add(s));
-    if (pick.size < 2) throw new NomiError(`Zum Thema „${f.join(', ')}“ hat Nomi in den Unterlagen nichts gefunden. Probier ein anderes Stichwort oder wähle „Alles“.`);
+    if (pick.size < 2) throw new LenaError(`Zum Thema „${f.join(', ')}“ hat Lena in den Unterlagen nichts gefunden. Probier ein anderes Stichwort oder wähle „Alles“.`);
     sents = sents.filter(s => pick.has(s));
     sections = sections.filter(sec => sec.sents.some(s => pick.has(s)));
   }
@@ -279,7 +276,7 @@ export async function summary(files, { focus = [], length = 'kompakt', name = ''
     if (!checks.some(c => fold(c).includes(k.k))) checks.push(`Wissen, was es mit „${clean(k.word)}“ auf sich hat`);
   }
   if (checks.length) md.push('## Das solltest du sicher können', '', ...checks.map(c => `- ${c}`), '');
-  md.push('*Von Nomi direkt aus deinen Unterlagen zusammengestellt. Die Seitenzahlen zeigen, wo du mehr dazu findest.*');
+  md.push('*Von Lena direkt aus deinen Unterlagen zusammengestellt. Die Seitenzahlen zeigen, wo du mehr dazu findest.*');
   return md.join('\n');
 }
 
@@ -367,7 +364,7 @@ export async function cards(files, { focus = [], count = 20, style = 'gemischt',
     count = Math.ceil(want * 0.75); whyCards();
     count = want; clozeCards(); sectionCards(); defCards();
   }
-  if (out.length < 3) throw new NomiError('Aus diesen Unterlagen konnte Nomi kaum Karteikarten bauen. Klappt am besten mit Skripten, in denen Begriffe erklärt werden.');
+  if (out.length < 3) throw new LenaError('Aus diesen Unterlagen konnte Lena kaum Karteikarten bauen. Klappt am besten mit Skripten, in denen Begriffe erklärt werden.');
   const title = m.focus.length ? m.focus.join(', ') : name || (files.length === 1 ? baseName(files[0].name) : 'Alle Unterlagen');
   return { title: `Karteikarten: ${shorten(title, 60)}`, cards: out };
 }
@@ -459,7 +456,7 @@ export async function exam(files, { focus = [], count = 10, kind = 'gemischt', d
   // Fragen aus echten Übungsklausuren zuerst, sonst bunt gemischt.
   const pickedOpen = [...opens.filter(o => o.explanation.startsWith('Diese Frage')), ...shuffled(opens.filter(o => !o.explanation.startsWith('Diese Frage')))].slice(0, nOpen);
   const questions = shuffled([...shuffled(mcs).slice(0, nMc), ...pickedOpen]).map(q => ({ ...q, topic: clean(shorten(q.topic || '', 50)), question: q.question }));
-  if (questions.length < 3) throw new NomiError('Aus diesen Unterlagen konnte Nomi nicht genug Aufgaben bauen. Klappt am besten mit Skripten, in denen Begriffe erklärt werden.');
+  if (questions.length < 3) throw new LenaError('Aus diesen Unterlagen konnte Lena nicht genug Aufgaben bauen. Klappt am besten mit Skripten, in denen Begriffe erklärt werden.');
   const pts = questions.reduce((s, q) => s + q.points, 0);
   const title = m.focus.length ? m.focus.join(', ') : name || (files.length === 1 ? baseName(files[0].name) : 'Alle Unterlagen');
   return { title: `Übungsklausur: ${shorten(title, 60)}`, duration_minutes: Math.max(5, Math.round(pts * 1.6 / 5) * 5), questions };
@@ -489,7 +486,7 @@ export function grade(items) {
   return {
     results,
     overall_feedback: (pct >= 0.8 ? 'Stark! Die offenen Fragen sitzen gut.' : pct >= 0.5 ? 'Solide Grundlage. Lies bei den Fragen mit Abzug die Musterlösung nach.' : 'Bei den offenen Fragen fehlt noch einiges. Wiederhole die Themen mit den Karteikarten und schreib die Klausur dann nochmal.')
-      + ' Nomi vergleicht deine Antwort mit den Schlüsselbegriffen der Musterlösung: Schau bei Abzügen selbst nach, ob du es nur anders formuliert hast.',
+      + ' Lena vergleicht deine Antwort mit den Schlüsselbegriffen der Musterlösung: Schau bei Abzügen selbst nach, ob du es nur anders formuliert hast.',
   };
 }
 
@@ -514,7 +511,7 @@ export async function plan(files, { focus = [], examDate = '', perDay = '1 Stund
   const steps = [];
   blocks.forEach((b, i) => {
     const topic = b.join(', ');
-    steps.push({ title: `${shorten(topic, 60)} verstehen`, description: `Lies die Zusammenfassung zu ${shorten(topic, 80)} und markiere, was dir unklar ist. Frag Nomi, wenn etwas hakt.`, activity: 'summary', topic, minutes: Math.min(mins, 40) });
+    steps.push({ title: `${shorten(topic, 60)} verstehen`, description: `Lies die Zusammenfassung zu ${shorten(topic, 80)} und markiere, was dir unklar ist. Frag Lena, wenn etwas hakt.`, activity: 'summary', topic, minutes: Math.min(mins, 40) });
     steps.push({ title: `${shorten(topic, 60)} einprägen`, description: 'Übe die Karteikarten, bis die meisten sicher sitzen.', activity: 'cards', topic, minutes: Math.min(mins, 30) });
     if (i % 2 === 1 || i === blocks.length - 1) steps.push({ title: 'Wiederholen', description: `Geh die unsicheren Karteikarten der letzten Themen nochmal durch: ${shorten(blocks.slice(Math.max(0, i - 1), i + 1).flat().join(', '), 90)}.`, activity: 'review', topic, minutes: Math.min(mins, 20) });
   });

@@ -542,8 +542,8 @@ textarea.input { min-height: 110px; resize: vertical; }
 }
 .splash.waiting .tap-hint::before { content: "▶"; color: var(--accent); margin-right: 4px; }
 
-/* ===== Nomi ===== */
+/* ===== Lena ===== */
 .fab .owl { font-size: 22px; line-height: 1; }
-.nomi-face { font-size: 30px; line-height: 1; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: var(--accent-soft); flex-shrink: 0; }
-.nomi-mode { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
-.nomi-mode a { color: var(--accent); }
+.lena-face { font-size: 30px; line-height: 1; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 14px; background: var(--accent-soft); flex-shrink: 0; }
+.lena-mode { display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.lena-mode a { color: var(--accent); }
