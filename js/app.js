@@ -8,6 +8,13 @@ import { ingestFile, filesToBlocks, fileBadge, formatSize, totalSize, CATEGORIES
 import * as AI from './ai.js';
 import * as PR from './prompts.js';
 import { initChat, setChatContext, showFab } from './chat.js';
+import { CLOUD_AI } from './config.js';
+import * as Nomi from './nomi/engine.js';
+import * as LLM from './nomi/llm.js';
+
+// Ohne Cloud-KI ist Nomi immer bereit, ganz ohne Schlüssel.
+const aiReady = () => !CLOUD_AI || AI.hasKey();
+const KI = CLOUD_AI ? 'die KI' : 'Nomi';
 
 const app = document.getElementById('app');
 let actions = {};
@@ -82,7 +89,7 @@ function viewSplash() {
       <button class="title-btn" id="titleBtn" aria-label="Der Lernomat öffnen">
         <span class="logo-mark">${LOGO}</span>
         <span class="title-text">${title}</span>
-        <span class="subtitle">Dein KI-Lernbegleiter</span>
+        <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Nomi 🦉'}</span>
       </button>
       <div class="tap-hint">Tippe auf den Titel, um loszulegen</div>
     </div>`;
@@ -157,7 +164,7 @@ async function viewHome() {
   app.innerHTML = `<div class="screen">
     ${topbar({ backTo: false, right: `<button class="icon-btn" data-act="theme" aria-label="Hell/Dunkel umschalten">${icon(applyTheme() ? 'sun' : 'moon')}</button><button class="icon-btn" data-act="settings" aria-label="Einstellungen">${icon('settings')}</button>` })}
     <section class="hero"><h1>${greeting()}</h1><p>Was möchtest du heute lernen?</p></section>
-    ${!AI.hasKey() ? `<div class="notice" style="margin-bottom:16px">${icon('key')}<div><b>Verbinde deine KI.</b> Damit der Lernomat Zusammenfassungen, Karteikarten und Klausuren bauen kann, trage einmal deinen API-Schlüssel ein.<div class="mt" style="margin-top:10px"><button class="btn small primary" data-act="settings">Jetzt einrichten</button></div></div></div>` : ''}
+    ${!aiReady() ? `<div class="notice" style="margin-bottom:16px">${icon('key')}<div><b>Verbinde deine KI.</b> Damit der Lernomat Zusammenfassungen, Karteikarten und Klausuren bauen kann, trage einmal deinen API-Schlüssel ein.<div class="mt" style="margin-top:10px"><button class="btn small primary" data-act="settings">Jetzt einrichten</button></div></div></div>` : ''}
     <div class="quick-actions">
       <button class="card tap qa" data-act="upload"><span class="ico">${icon('upload')}</span><div><b>Dateien hochladen</b><span>Skripte, Klausuren, Karteikarten …</span></div></button>
       <button class="card tap qa" data-act="newSubject"><span class="ico">${icon('folder')}</span><div><b>Neues Fach</b><span>Eigener Ordner mit Titel</span></div></button>
@@ -331,9 +338,9 @@ async function viewSubject({ id }) {
   app.innerHTML = `<div class="screen">
     ${topbar({ crumb: 'Hauptmenü', right: `<button class="icon-btn" data-act="menu" aria-label="Fach-Optionen">${icon('more')}</button>` })}
     <section class="hero"><div style="font-size:42px;line-height:1">${subj.emoji}</div><h1 style="margin-top:8px">${esc(subj.name)}</h1>
-      <p>${files.length ? `${files.length} ${files.length === 1 ? 'Datei' : 'Dateien'} · ${formatSize(totalSize(files))}` : 'Lade deine Unterlagen hoch, dann legt die KI los.'}</p></section>
+      <p>${files.length ? `${files.length} ${files.length === 1 ? 'Datei' : 'Dateien'} · ${formatSize(totalSize(files))}` : `Lade deine Unterlagen hoch, dann legt ${KI} los.`}</p></section>
 
-    <div class="section-title"><h2>Was soll die KI für dich bauen?</h2></div>
+    <div class="section-title"><h2>Was soll ${KI} für dich bauen?</h2></div>
     <div class="builders">
       ${Object.entries(TYPES).map(([k, t]) => `<button class="card tap builder" data-act="build" data-type="${k}">
         <span class="ico ${t.cls}">${icon(t.icon)}</span><b>${t.name}</b><span>${t.desc}</span></button>`).join('')}
@@ -349,7 +356,7 @@ async function viewSubject({ id }) {
     <div class="dropzone" id="drop" data-act="add">${icon('upload')}<div><b>Dateien hierher ziehen</b> oder tippen zum Auswählen</div><small>PDF, Fotos, Word, PowerPoint, Text</small></div>
 
     <div class="section-title"><h2>Deine Lernsets</h2></div>
-    ${sets.length ? `<div class="list">${sets.map(s => setRow(s)).join('')}</div>` : `<div class="empty card"><div class="big">✨</div>Noch nichts erstellt. Wähle oben aus, was die KI dir bauen soll.</div>`}
+    ${sets.length ? `<div class="list">${sets.map(s => setRow(s)).join('')}</div>` : `<div class="empty card"><div class="big">✨</div>Noch nichts erstellt. Wähle oben aus, was ${KI} dir bauen soll.</div>`}
   </div>`;
 
   const drop = document.getElementById('drop');
@@ -448,8 +455,8 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
         <div class="chips">
           <button class="chip ${sel.topics.size === 0 ? 'on' : ''}" data-act="allTopics">Alles</button>
           ${topics ? topics.map(tp => `<button class="chip ${sel.topics.has(tp.title) ? 'on' : ''}" data-act="topic" data-t="${esc(tp.title)}" title="${esc(tp.description)}">${esc(tp.title)}</button>`).join('')
-            : topicsLoading ? `<span class="chip dashed">KI erkennt Themen …</span>` : ''}
-          ${AI.hasKey() && !topicsLoading ? `<button class="chip dashed" data-act="detect">${topics ? '↻ Themen neu erkennen' : '✨ Themen erkennen'}</button>` : ''}
+            : topicsLoading ? `<span class="chip dashed">${CLOUD_AI ? 'KI erkennt' : 'Nomi sucht'} Themen …</span>` : ''}
+          ${aiReady() && !topicsLoading ? `<button class="chip dashed" data-act="detect">${topics ? '↻ Themen neu erkennen' : '✨ Themen erkennen'}</button>` : ''}
         </div>
         <input class="input mt" id="custom" placeholder="Oder eigenes Thema, z. B. „Kapitel 3“ oder „Zellatmung“" value="${esc(sel.custom)}" style="margin-top:12px">
       </div>
@@ -465,7 +472,7 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
       </div></div>
 
       <button class="btn primary block" data-act="create" style="min-height:54px;font-size:17px">${icon('sparkle')} ${t.name} erstellen</button>
-      ${!AI.hasKey() ? `<p class="muted center" style="font-size:14px">Dafür brauchst du zuerst einen API-Schlüssel in den <a href="#" data-act="settings">Einstellungen</a>.</p>` : ''}
+      ${!aiReady() ? `<p class="muted center" style="font-size:14px">Dafür brauchst du zuerst einen API-Schlüssel in den <a href="#" data-act="settings">Einstellungen</a>.</p>` : ''}
 
       ${sets.length ? `<div class="section-title"><h2>Bereits erstellt</h2></div><div class="list">${sets.map(s => setRow(s)).join('')}</div>` : ''}
     </div>`;
@@ -480,7 +487,8 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
   const detect = async () => {
     topicsLoading = true; draw();
     try {
-      const res = await AI.generateJSON({ fileBlocks: await filesToBlocks(files), prompt: PR.topicsPrompt(), schema: AI.SCHEMAS.topics, maxTokens: 6000, effort: 'low' });
+      const res = CLOUD_AI ? await AI.generateJSON({ fileBlocks: await filesToBlocks(files), prompt: PR.topicsPrompt(), schema: AI.SCHEMAS.topics, maxTokens: 6000, effort: 'low' })
+        : await Nomi.topics(files);
       topics = res.topics;
       const fresh = await db.get('subjects', subjectId);
       await db.put('subjects', { ...fresh, topics, topicsKey: fileKey });
@@ -499,16 +507,16 @@ async function viewBuilder({ subjectId, type, preset }, alive) {
     opt: d => { sel.opts[d.k] = d.v; draw(); },
     openSet: d => go('set', { id: d.id }),
     create: async () => {
-      if (!AI.hasKey()) { go('settings'); return; }
+      if (!aiReady()) { go('settings'); return; }
       const chosen = files.filter(f => sel.files.has(f.id));
       if (!chosen.length) { toast('Wähle mindestens eine Datei aus.'); return; }
-      if (totalSize(chosen) > 24 * 1024 * 1024) { toast('Zusammen über 24 MB: bitte weniger Dateien auswählen.', 4000); return; }
+      if (CLOUD_AI && totalSize(chosen) > 24 * 1024 * 1024) { toast('Zusammen über 24 MB: bitte weniger Dateien auswählen.', 4000); return; }
       const focus = [...sel.topics, sel.custom.trim()].filter(Boolean);
-      await runGeneration({ subj, type, alive, focus, opts: { ...sel.opts, examDate: sel.examDate, goal: sel.goal }, blocksPromise: filesToBlocks(chosen, { focus }), onFail: draw });
+      await runGeneration({ subj, type, alive, focus, opts: { ...sel.opts, examDate: sel.examDate, goal: sel.goal }, files: chosen, onFail: draw });
     },
   };
   draw();
-  if (!topics && AI.hasKey() && files.length) detect();
+  if (!topics && aiReady() && files.length) detect();
 }
 
 const WAIT_LINES = {
@@ -519,14 +527,15 @@ const WAIT_LINES = {
 };
 
 // Lässt die KI das gewünschte Lernset bauen und öffnet es danach.
-async function runGeneration({ subj, type, alive, focus, opts, blocksPromise, onFail }) {
+// files: die gewählten Dateien; extra: zusätzliche Texte (z. B. eine Zusammenfassung oder die eigenen Fehler).
+async function runGeneration({ subj, type, alive, focus, opts, files = [], extra = [], onFail }) {
   const t = TYPES[type];
   app.innerHTML = `<div class="screen">${topbar({ crumb: `${subj.emoji} ${esc(subj.name)}` })}
     <div class="thinking"><div class="orb"></div><b>${t.name} wird erstellt</b><p id="waitLine">${WAIT_LINES[type][0]}</p></div>
     <div id="live"></div></div>`;
   let busy = true;
   actions.back = async () => {
-    if (!busy || await confirmDialog('Die KI arbeitet noch. Wenn du zurückgehst, wird das Ergebnis trotzdem gespeichert.', { ok: 'Zurück', title: 'Zurückgehen?' })) back();
+    if (!busy || await confirmDialog((CLOUD_AI ? 'Die KI' : 'Nomi') + ' arbeitet noch. Wenn du zurückgehst, wird das Ergebnis trotzdem gespeichert.', { ok: 'Zurück', title: 'Zurückgehen?' })) back();
   };
   let li = 0;
   const timer = setInterval(() => {
@@ -535,9 +544,28 @@ async function runGeneration({ subj, type, alive, focus, opts, blocksPromise, on
   }, 3500);
   cleanups.push(() => clearInterval(timer));
   try {
-    const fileBlocks = await blocksPromise;
     let set;
     const base = { id: uid(), subjectId: subj.id, type, created: Date.now(), focus };
+    if (!CLOUD_AI) {
+      // Nomi baut das Lernset direkt auf dem Gerät. Kurz warten, damit die Animation sichtbar wird.
+      const pseudo = extra.map((x, i) => ({ id: 'extra-' + i, name: x.title, kind: 'text', text: x.text, category: 'Zusammenfassung', size: x.text.length, added: 0 }));
+      const src = [...files, ...pseudo];
+      await new Promise(r => setTimeout(r, 600));
+      if (type === 'summary') {
+        const md = await Nomi.summary(src, { focus, length: opts.length, name: subj.name });
+        set = { ...base, title: ((/^#\s+(.+)$/m.exec(md) || [])[1] || `Zusammenfassung ${subj.name}`).replace(/\*\*/g, ''), data: { markdown: md } };
+      } else if (type === 'cards') {
+        const res = await Nomi.cards(extra.length && !files.length ? pseudo : src, { focus: extra.length ? [] : focus, count: opts.count, style: opts.style, name: subj.name });
+        set = { ...base, title: res.title, data: { cards: res.cards.map(c => ({ ...c, id: uid(), box: 0, seen: 0 })) } };
+      } else if (type === 'exam') {
+        const res = await Nomi.exam(src, { focus, count: opts.count, kind: opts.kind, difficulty: opts.difficulty, name: subj.name });
+        set = { ...base, title: res.title, data: { duration: res.duration_minutes, questions: res.questions }, attempts: [] };
+      } else {
+        const res = await Nomi.plan(src, { focus, examDate: opts.examDate, perDay: opts.perDay, goal: opts.goal, name: subj.name });
+        set = { ...base, title: res.title, data: { overview: res.overview, steps: res.steps.map(s => ({ ...s, done: false })) } };
+      }
+    } else {
+    const fileBlocks = [...await filesToBlocks(files, { focus }), ...extra.map(x => ({ type: 'document', title: x.title, source: { type: 'text', media_type: 'text/plain', data: x.text } }))];
     if (type === 'summary') {
       let last = 0;
       const md = await AI.generateText({
@@ -561,6 +589,7 @@ async function runGeneration({ subj, type, alive, focus, opts, blocksPromise, on
     } else {
       const res = await AI.generateJSON({ fileBlocks, prompt: PR.planPrompt({ focus, examDate: opts.examDate, perDay: opts.perDay, goal: opts.goal }), schema: AI.SCHEMAS.plan, maxTokens: 12000 });
       set = { ...base, title: res.title || `Lernplan ${subj.name}`, data: { overview: res.overview, steps: res.steps.map(s => ({ ...s, done: false })) } };
+    }
     }
     await db.put('sets', set);
     busy = false;
@@ -644,9 +673,8 @@ function viewSummary(set, subj, alive) {
       }
     },
     toCards: () => {
-      if (!AI.hasKey()) return go('settings');
-      const blocks = Promise.resolve([{ type: 'document', title: set.title, source: { type: 'text', media_type: 'text/plain', data: set.data.markdown } }]);
-      runGeneration({ subj, type: 'cards', alive, focus: set.focus || [], opts: { count: '20', style: 'gemischt' }, blocksPromise: blocks });
+      if (!aiReady()) return go('settings');
+      runGeneration({ subj, type: 'cards', alive, focus: set.focus || [], opts: { count: '20', style: 'gemischt' }, extra: [{ title: set.title, text: set.data.markdown.replace(/[*>|]/g, ' ') }] });
     },
   };
 }
@@ -827,9 +855,10 @@ function runExam(set, subj, alive, timed) {
     const open = qs.map((q, i) => ({ ...q, index: i, answer: answers[i] })).filter(q => q.type === 'open');
     let overall = '';
     if (open.length) {
-      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}<div class="thinking"><div class="orb"></div><b>Deine Antworten werden korrigiert</b><p>Die KI vergleicht deine Antworten mit der Musterlösung …</p></div></div>`;
+      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}<div class="thinking"><div class="orb"></div><b>Deine Antworten werden korrigiert</b><p>${CLOUD_AI ? 'Die KI' : 'Nomi'} vergleicht deine Antworten mit der Musterlösung …</p></div></div>`;
       try {
-        const g = await AI.generateJSON({ prompt: PR.gradingPrompt(open), schema: AI.SCHEMAS.grading, maxTokens: 8000, effort: 'low' });
+        const g = CLOUD_AI ? await AI.generateJSON({ prompt: PR.gradingPrompt(open), schema: AI.SCHEMAS.grading, maxTokens: 8000, effort: 'low' })
+          : (await new Promise(r => setTimeout(r, 700)), Nomi.grade(open));
         for (const r of g.results) {
           if (results[r.index] && qs[r.index].type === 'open') {
             results[r.index].points = Math.max(0, Math.min(qs[r.index].points, r.points_awarded));
@@ -907,12 +936,13 @@ function examResult(set, subj, alive, attempt) {
     setMenu: () => setMenu(set),
     retry: () => viewExam(set, subj, alive),
     weakCards: async () => {
-      if (!AI.hasKey()) return go('settings');
+      if (!aiReady()) return go('settings');
       const files = await db.bySubject('files', set.subjectId);
       const mistakes = qs.map((q, i) => ({ q, r: attempt.results[i] })).filter(x => x.r.points < x.q.points)
         .map(x => `- ${x.q.question}\n  Musterlösung: ${x.q.model_answer}`).join('\n');
-      const extra = { type: 'document', title: 'Meine Fehler in der Übungsklausur', source: { type: 'text', media_type: 'text/plain', data: mistakes } };
-      runGeneration({ subj, type: 'cards', alive, focus: weak, opts: { count: '20', style: 'gemischt' }, blocksPromise: filesToBlocks(files).then(b => [...b, extra]) });
+      // Für Nomi: die Musterlösungen als Lernstoff, daraus werden die Karten.
+      const mistakesText = qs.map((q, i) => ({ q, r: attempt.results[i] })).filter(x => x.r.points < x.q.points).map(x => x.q.model_answer).join('\n\n');
+      runGeneration({ subj, type: 'cards', alive, focus: weak, opts: { count: '20', style: 'gemischt' }, files: CLOUD_AI ? files : [], extra: [{ title: 'Meine Fehler in der Übungsklausur', text: CLOUD_AI ? mistakes : mistakesText }] });
     },
   };
 }
@@ -967,6 +997,7 @@ async function viewFile({ id, page, q, char }, alive) {
   if (!f) return go('home', {}, { replace: true });
   const subj = await db.get('subjects', f.subjectId);
   let pageInfo = '';
+  let curPage = null;
   app.innerHTML = `<div class="screen viewer-screen">
     ${topbar({ crumb: `${subj?.emoji || ''} ${esc(subj?.name || '')}`, right: `<button class="icon-btn" data-act="download" aria-label="Datei öffnen">${icon('share')}</button>` })}
     <div class="viewer-head"><h2>${esc(f.name)}</h2><span class="muted" id="pageInfo"></span></div>
@@ -987,6 +1018,8 @@ async function viewFile({ id, page, q, char }, alive) {
     subjectId: f.subjectId, label: subj?.name,
     detail: () => `beim Lesen der Datei „${f.name}“${pageInfo ? `, gerade auf ${pageInfo}` : ''}`,
     suggestions: ['Wo im Skript finde ich …', 'Erklär mir die Seite, die ich gerade lese.', 'Was ist in diesem Skript am wichtigsten?', 'Fass dieses Kapitel kurz zusammen.'],
+    nomiSuggestions: ['Fass die Seite zusammen, die ich gerade lese.', 'Was ist …', 'Wo steht etwas zu …', 'Was ist besonders wichtig?', 'Frag mich ab!'],
+    here: () => ({ fileId: f.id, page: curPage }),
   });
   actions = {
     back: () => back({ view: 'subject', params: { id: f.subjectId } }),
@@ -999,7 +1032,7 @@ async function viewFile({ id, page, q, char }, alive) {
   let ctl;
   try {
     if (f.kind === 'pdf') {
-      ctl = await renderPdf(docEl, f.blob, { onPage: (n, total) => { pageInfo = `Seite ${n}`; info.textContent = `Seite ${n} von ${total}`; } });
+      ctl = await renderPdf(docEl, f.blob, { onPage: (n, total) => { pageInfo = `Seite ${n}`; curPage = n; info.textContent = `Seite ${n} von ${total}`; } });
     } else if (f.kind === 'image') {
       const url = URL.createObjectURL(f.blob);
       docEl.innerHTML = `<img class="doc-img" src="${url}" alt="${esc(f.name)}">`;
@@ -1048,8 +1081,15 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 10</p></section>
-    <div class="card">
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 11</p></section>
+    ${CLOUD_AI ? '' : `<div class="card">
+      <h2 style="font-size:18px;margin-bottom:6px">🦉 Nomi, dein Lernassistent</h2>
+      <p class="muted" style="margin-top:0;font-size:15px">Nomi arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Deine Dateien verlassen dein Gerät nie.</p>
+      <h3 style="font-size:16px;margin:16px 0 4px">✨ Denk-Modus (freiwillig)</h3>
+      <p class="muted" style="margin-top:0;font-size:15px">Im Denk-Modus lädt Nomi einmalig ein kleines Sprachmodell auf dein Gerät. Dann beantwortet Nomi Fragen im Chat in eigenen Worten statt mit Sätzen aus dem Skript. Das braucht ein neueres Gerät und für den Download am besten WLAN.</p>
+      <div id="llmBox"><p class="muted">Prüfe dein Gerät …</p></div>
+    </div>`}
+    <div class="card" ${CLOUD_AI ? '' : 'hidden'}>
       <h2 style="font-size:18px;margin-bottom:6px">🧠 Deine KI</h2>
       ${AI.sharedAI() ? `<div class="notice" style="margin-bottom:12px">${icon('check')}<div>Die KI ist schon eingerichtet und für dich kostenlos (mit Tageslimit). Einen eigenen Schlüssel brauchst du nur, wenn du mehr nutzen willst.</div></div>` : ''}
       <p class="muted" style="margin-top:0;font-size:15px">Der Lernomat nutzt Claude von Anthropic. ${AI.sharedAI() ? 'Optional mit eigenem' : 'Du brauchst einen eigenen'} API-Schlüssel: auf <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a> anmelden, Guthaben aufladen und unter „API Keys“ einen Schlüssel erstellen. Er wird nur auf diesem Gerät gespeichert.</p>
@@ -1079,6 +1119,7 @@ async function viewSettings() {
   app.querySelector('#sound').addEventListener('change', e => { setSoundEnabled(e.target.checked); if (e.target.checked) unlock().then(() => sfx('good')); });
   const save = () => AI.saveSettings({ apiKey: app.querySelector('#key').value, model: app.querySelector('#model').disabled ? undefined : app.querySelector('#model').value });
   app.querySelector('#model').addEventListener('change', save);
+  if (!CLOUD_AI) llmSettings(app.querySelector('#llmBox'));
   actions = {
     back: () => back(),
     install: installHelp,
@@ -1096,12 +1137,57 @@ async function viewSettings() {
     export: exportBackup,
     import: importBackup,
     wipe: async () => {
-      if (!await confirmDialog('Alle Fächer, Dateien und Lernsets werden von diesem Gerät gelöscht. Dein API-Schlüssel bleibt erhalten.', { ok: 'Alles löschen', danger: true })) return;
+      if (!await confirmDialog(`Alle Fächer, Dateien und Lernsets werden von diesem Gerät gelöscht.${CLOUD_AI ? ' Dein API-Schlüssel bleibt erhalten.' : ''}`, { ok: 'Alles löschen', danger: true })) return;
       await Promise.all(['subjects', 'files', 'sets'].map(s => db.clear(s)));
       toast('Alle Daten gelöscht');
       go('home', {}, { replace: true });
     },
   };
+}
+
+// Denk-Modus: Sprachmodell herunterladen, starten oder löschen.
+let llmPick = null;
+async function llmSettings(box) {
+  const sup = await LLM.checkSupport();
+  if (!box.isConnected) return;
+  if (!sup.ok) {
+    box.innerHTML = `<div class="notice">${icon('info')}<div>${esc(sup.why)} Nomi funktioniert trotzdem, nur im Schnell-Modus.</div></div>`;
+    return;
+  }
+  llmPick ||= LLM.chosen() || (/iPhone|iPad|Android/.test(navigator.userAgent) || navigator.maxTouchPoints > 1 ? LLM.MODELS[0].id : LLM.MODELS[1].id);
+  const draw = () => {
+    if (!box.isConnected) { off(); return; }
+    const st = LLM.status();
+    const model = LLM.MODELS.find(x => x.id === (st.model || llmPick)) || LLM.MODELS[0];
+    if (st.state === 'loading') {
+      box.innerHTML = `<div class="progress" style="margin:8px 0"><i style="width:${Math.round(st.progress.value * 100)}%"></i></div><p class="muted" style="margin:0;font-size:14px">${esc(st.progress.text)}</p>
+        <p class="muted" style="font-size:13px">Du kannst die App dabei weiter benutzen. Lass sie nur geöffnet, bis der Download fertig ist.</p>`;
+    } else if (st.state === 'ready') {
+      box.innerHTML = `<div class="notice">${icon('check')}<div><b>Denk-Modus ist an</b> (${esc(model.name)}). Nomi antwortet im Chat jetzt in eigenen Worten.</div></div>
+        <div class="btn-row"><button class="btn danger" data-llm="remove">${icon('trash')} Sprachmodell löschen</button></div>`;
+    } else if (st.model) {
+      box.innerHTML = `${st.state === 'error' ? `<div class="notice" style="margin-bottom:10px">${icon('info')}<div>${esc(st.progress.text)}</div></div>` : ''}
+        <p style="margin:0 0 8px">Heruntergeladen: <b>${esc(model.name)}</b>. Es startet automatisch, wenn du Nomi fragst.</p>
+        <div class="btn-row"><button class="btn primary" data-llm="start">Jetzt starten</button><button class="btn danger" data-llm="remove">${icon('trash')} Löschen</button></div>`;
+    } else {
+      box.innerHTML = `${st.state === 'error' ? `<div class="notice" style="margin-bottom:10px">${icon('info')}<div>${esc(st.progress.text)}</div></div>` : ''}
+        <div class="seg" style="margin-bottom:10px">${LLM.MODELS.map(x => `<button data-pick="${x.id}" class="${x.id === llmPick ? 'on' : ''}">${esc(x.name)}</button>`).join('')}</div>
+        <p class="muted" style="margin:0 0 10px;font-size:14px">${esc(model.note)} · Download ${esc(model.size)}</p>
+        <div class="btn-row"><button class="btn primary" data-llm="start">${icon('download')} Denk-Modus herunterladen</button></div>`;
+    }
+    box.querySelectorAll('[data-pick]').forEach(b => b.addEventListener('click', () => { llmPick = b.dataset.pick; draw(); }));
+    box.querySelector('[data-llm="start"]')?.addEventListener('click', () => {
+      LLM.load(LLM.status().model || llmPick).then(() => { toast('✨ Denk-Modus ist bereit!'); sfx('good'); }).catch(() => {});
+    });
+    box.querySelector('[data-llm="remove"]')?.addEventListener('click', async () => {
+      if (!await confirmDialog('Das Sprachmodell wird vom Gerät gelöscht. Nomi arbeitet dann wieder im Schnell-Modus.', { ok: 'Löschen', danger: true })) return;
+      await LLM.remove();
+      toast('Sprachmodell gelöscht');
+    });
+  };
+  const off = LLM.onChange(draw);
+  cleanups.push(off);
+  draw();
 }
 
 async function exportBackup() {

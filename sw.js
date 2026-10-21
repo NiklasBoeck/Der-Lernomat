@@ -1,10 +1,11 @@
 // Service Worker: macht den Lernomat offline nutzbar.
-const VERSION = 'lernomat-v10';
+const VERSION = 'lernomat-v11';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/vendor/anthropic-sdk-0.131.0.min.js', 'js/vendor/jszip-3.10.1.min.js',
   'js/vendor/pdfjs-4.10.38.min.mjs', 'js/vendor/pdfjs-4.10.38.worker.min.mjs', 'js/viewer.js',
   'js/app.js', 'js/ai.js', 'js/config.js', 'js/audio.js', 'js/chat.js', 'js/db.js', 'js/files.js', 'js/markdown.js', 'js/prompts.js', 'js/ui.js',
+  'js/nomi/text.js', 'js/nomi/engine.js', 'js/nomi/assistant.js', 'js/nomi/llm.js', 'js/nomi/llm-worker.js',
   'icons/favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com'];
@@ -13,9 +14,10 @@ self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));
 });
 
+// Nur eigene alte Caches löschen: das Sprachmodell des Denk-Modus liegt in eigenen Caches und bleibt erhalten.
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys()
-    .then(keys => Promise.all(keys.filter(k => k !== VERSION).map(k => caches.delete(k))))
+    .then(keys => Promise.all(keys.filter(k => k.startsWith('lernomat-') && k !== VERSION).map(k => caches.delete(k))))
     .then(() => self.clients.claim()));
 });
 
