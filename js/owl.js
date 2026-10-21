@@ -17,7 +17,8 @@ export function owlSVG({ cap = false, pencil = false, cls = '' } = {}) {
         <circle cx="47.5" cy="48.5" r="2.2" fill="#fff"/><circle cx="81.5" cy="48.5" r="2.2" fill="#fff"/></g>
       <g class="owl-lids"><rect x="31" y="38" width="24" height="24" rx="12" fill="#8B5A33"/><rect x="65" y="38" width="24" height="24" rx="12" fill="#8B5A33"/></g>
     </g>
-    <path d="M55 60h10l-5 10z" fill="#F2A23A" stroke="#D9862A" stroke-width="1.5" stroke-linejoin="round"/>
+    <ellipse class="owl-mouth" cx="60" cy="69" rx="5.4" ry="5.4" fill="#5A2E1E"/>
+    <path class="owl-beak" d="M55 60h10l-5 10z" fill="#F2A23A" stroke="#D9862A" stroke-width="1.5" stroke-linejoin="round"/>
     <path d="M44 114c-2 4-6 6-6 6M48 115v6M52 114c2 4 6 6 6 6M68 114c-2 4-6 6-6 6M72 115v6M76 114c2 4 6 6 6 6" stroke="#F2A23A" stroke-width="3.2" stroke-linecap="round" fill="none"/>
     ${cap ? `<g class="owl-cap"><path d="M60 6 26 20l34 13 34-13z" fill="#2E3350"/><path d="M42 26v9c0 5 36 5 36 0v-9l-18 7z" fill="#3B4166"/>
       <path d="M92 21v14" stroke="#F2B63D" stroke-width="2.4" stroke-linecap="round"/><circle cx="92" cy="37" r="3" fill="#F2B63D"/></g>` : ''}
