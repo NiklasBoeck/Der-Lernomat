@@ -1,6 +1,6 @@
 // Der Lernomat – Hauptlogik: Navigation und alle Bildschirme.
 import { db, uid, requestPersistence } from './db.js';
-import { icon, LOGO, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
+import { icon, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
 import { renderPdf, renderText } from './viewer.js';
 import { esc, renderMarkdown } from './markdown.js';
 import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled } from './audio.js';
@@ -12,6 +12,8 @@ import { CLOUD_AI } from './config.js';
 import * as Lena from './lena/engine.js';
 import * as LLM from './lena/llm.js';
 import { explainSummary, refineGrading } from './lena/enhance.js';
+import { owlSVG, owlAtWork, owlFlyBy } from './owl.js';
+import { startGame, makePairs, highscore } from './game.js';
 
 // Ohne Cloud-KI ist Lena immer bereit, ganz ohne Schlüssel.
 const aiReady = () => !CLOUD_AI || AI.hasKey();
@@ -51,7 +53,7 @@ async function render(st) {
   cleanups = [];
   actions = {};
   window.scrollTo(0, 0);
-  const views = { home: viewHome, subject: viewSubject, builder: viewBuilder, set: viewSet, settings: viewSettings, file: viewFile };
+  const views = { home: viewHome, subject: viewSubject, builder: viewBuilder, set: viewSet, settings: viewSettings, file: viewFile, game: viewGame };
   showFab(st.view !== 'splash');
   setChatContext(null);
   try {
@@ -73,7 +75,7 @@ app.addEventListener('click', e => {
 
 const topbar = ({ backTo = true, crumb = '', right = '' } = {}) => `
   <header class="topbar">
-    ${backTo ? `<button class="icon-btn" data-act="back" aria-label="Zurück">${icon('back')}</button>` : `<div class="brand"><span class="mini-logo">${LOGO}</span>Der Lernomat</div>`}
+    ${backTo ? `<button class="icon-btn" data-act="back" aria-label="Zurück">${icon('back')}</button>` : `<div class="brand"><span class="owl-badge">${owlSVG()}</span>Der Lernomat</div>`}
     <div class="crumb">${crumb}</div><div class="spacer"></div>${right}
   </header>`;
 
@@ -88,9 +90,9 @@ function viewSplash() {
       <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
       <button class="sound-pill" id="soundPill" hidden>${icon('volume')} Ton an</button>
       <button class="title-btn" id="titleBtn" aria-label="Der Lernomat öffnen">
-        <span class="logo-mark">${LOGO}</span>
+        <span class="logo-mark owl-logo">${owlSVG({ cap: true })}</span>
         <span class="title-text">${title}</span>
-        <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Lena 🦉'}</span>
+        <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Lena'}</span>
       </button>
       <div class="tap-hint">Tippe auf den Titel, um loszulegen</div>
     </div>`;
@@ -158,20 +160,31 @@ function mastery(sets) {
 async function viewHome() {
   const [subjects, sets, files] = await Promise.all([db.all('subjects'), db.all('sets'), db.all('files')]);
   subjects.sort((a, b) => (b.lastOpened || b.created) - (a.lastOpened || a.created));
-  const recent = [...sets].sort((a, b) => (b.lastOpened || b.created) - (a.lastOpened || a.created)).slice(0, 5);
+  const recent = [...sets].sort((a, b) => (b.lastOpened || b.created) - (a.lastOpened || a.created)).slice(0, 3);
   const subjById = Object.fromEntries(subjects.map(s => [s.id, s]));
   const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 
+  const cardsTotal = sets.filter(x => x.type === 'cards').reduce((n, x) => n + x.data.cards.length, 0);
+  const known = sets.filter(x => x.type === 'cards').reduce((n, x) => n + x.data.cards.filter(c => c.box >= 3).length, 0);
+  const stats = [
+    [subjects.length, subjects.length === 1 ? 'Fach' : 'Fächer'],
+    [sets.length, sets.length === 1 ? 'Lernset' : 'Lernsets'],
+    [known, 'Karten sicher'],
+  ];
   app.innerHTML = `<div class="screen">
     ${topbar({ backTo: false, right: `<button class="icon-btn" data-act="theme" aria-label="Hell/Dunkel umschalten">${icon(applyTheme() ? 'sun' : 'moon')}</button><button class="icon-btn" data-act="settings" aria-label="Einstellungen">${icon('settings')}</button>` })}
-    <section class="hero"><h1>${greeting()}</h1><p>Was möchtest du heute lernen?</p></section>
+    <section class="home-hero">
+      <div class="home-owl" data-act="poke">${owlSVG({ cap: true })}</div>
+      <div class="bubble"><h1>${greeting()}</h1><p>${subjects.length ? 'Was möchtest du heute lernen?' : 'Ich bin die Lernomat-Eule. Leg dein erstes Fach an, dann legen wir los!'}</p></div>
+    </section>
+    ${subjects.length ? `<div class="home-stats">${stats.map(([n, l]) => `<div><b>${n}</b><span>${l}</span></div>`).join('')}</div>` : ''}
     ${!aiReady() ? `<div class="notice" style="margin-bottom:16px">${icon('key')}<div><b>Verbinde deine KI.</b> Damit der Lernomat Zusammenfassungen, Karteikarten und Klausuren bauen kann, trage einmal deinen API-Schlüssel ein.<div class="mt" style="margin-top:10px"><button class="btn small primary" data-act="settings">Jetzt einrichten</button></div></div></div>` : ''}
     <div class="quick-actions">
-      <button class="card tap qa" data-act="upload"><span class="ico">${icon('upload')}</span><div><b>Dateien hochladen</b><span>Skripte, Klausuren, Karteikarten …</span></div></button>
-      <button class="card tap qa" data-act="newSubject"><span class="ico">${icon('folder')}</span><div><b>Neues Fach</b><span>Eigener Ordner mit Titel</span></div></button>
+      <button class="card tap qa" data-act="upload"><span class="ico">${icon('upload')}</span><div><b>Dateien hochladen</b><span>Skripte, Fotos, Karteikarten …</span></div></button>
+      <button class="card tap qa game-qa" data-act="game"><span class="ico">⚡</span><div><b>Lernspiel</b><span>Eulen-Blitz: 60 Sekunden Quiz</span></div></button>
     </div>
-    <div class="section-title"><h2>Deine Fächer</h2><span class="hint">${subjects.length ? subjects.length + (subjects.length === 1 ? ' Fach' : ' Fächer') : ''}</span></div>
-    <div class="grid">
+    <div class="section-title"><h2>Deine Fächer</h2><button class="btn small primary" data-act="newSubject">${icon('plus')} Neues Fach</button></div>
+    ${subjects.length ? `<div class="grid">
       ${subjects.map(s => {
         const sSets = sets.filter(x => x.subjectId === s.id);
         const fCount = files.filter(f => f.subjectId === s.id).length;
@@ -183,12 +196,10 @@ async function viewHome() {
           <div class="meta"><span>${fCount} ${fCount === 1 ? 'Datei' : 'Dateien'}</span><span>${sSets.length} ${sSets.length === 1 ? 'Lernset' : 'Lernsets'}</span>${m !== null ? `<span>${Math.round(m * 100)} % sicher</span>` : ''}</div></div>
         </button>`;
       }).join('')}
-      <button class="card tap new-folder" data-act="newSubject">${icon('plus')}<span>Neues Fach anlegen</span></button>
-    </div>
+    </div>` : `<div class="empty card"><div class="big">📚</div>Noch keine Fächer. Tippe oben auf <b>Neues Fach</b>, z. B. „Biologie“ oder „Mathe“.</div>`}
     ${recent.length ? `<div class="section-title"><h2>Zuletzt gelernt</h2></div>
       <div class="list">${recent.map(s => setRow(s, subjById[s.subjectId]?.name)).join('')}</div>` : ''}
-    ${!standalone ? `<div class="section-title"><h2>Als App nutzen</h2></div>
-      <button class="card tap qa" data-act="install" style="width:100%"><span class="ico">${icon('phone')}</span><div><b>Auf iPhone oder Mac installieren</b><span>So hast du den Lernomat wie eine echte App.</span></div></button>` : ''}
+    ${!standalone ? `<button class="install-hint" data-act="install">${icon('phone')} Als App auf iPhone oder Mac installieren</button>` : ''}
   </div>`;
 
   actions = {
@@ -202,6 +213,8 @@ async function viewHome() {
     newSubject: () => subjectDialog(),
     upload: () => uploadChooser(subjects),
     install: installHelp,
+    game: () => gameChooser(subjects),
+    poke: (_d, el) => { const o = el.querySelector('.owl-svg'); o.classList.remove('happy'); void o.getBoundingClientRect(); o.classList.add('happy'); sfx('tap'); },
   };
 }
 
@@ -276,6 +289,45 @@ function uploadChooser(subjects) {
   });
 }
 
+function gameChooser(subjects) {
+  if (!subjects.length) { toast('Lege zuerst ein Fach an und lade Unterlagen hoch.'); return; }
+  if (subjects.length === 1) { go('game', { subjectId: subjects[0].id }); return; }
+  const m = openModal(`<h2>Mit welchem Fach spielen?</h2>
+    <p class="muted" style="margin-top:-6px">Die Fragen kommen aus deinen Karteikarten und Unterlagen.</p>
+    <div class="list">
+      ${subjects.map(s => `<button class="row tap" data-s="${s.id}"><span class="ico" style="background:${s.color}22;font-size:20px">${s.emoji}</span><span class="main"><b>${esc(s.name)}</b>${highscore(s.id) ? `<span>Rekord: ${highscore(s.id)} Punkte</span>` : ''}</span></button>`).join('')}
+    </div>
+    <div class="btn-row"><button class="btn" data-close>Abbrechen</button></div>`);
+  m.el.querySelectorAll('[data-s]').forEach(b => b.addEventListener('click', () => { m.close(); go('game', { subjectId: b.dataset.s }); }));
+}
+
+// ===== Lernspiel =====
+async function viewGame({ subjectId }, alive) {
+  const subj = await db.get('subjects', subjectId);
+  if (!subj) return go('home', {}, { replace: true });
+  app.innerHTML = `<div class="screen">${topbar({ crumb: `${subj.emoji} ${esc(subj.name)}` })}<div id="gameBox"><div class="thinking"><div class="orb"></div><p>Die Eule sucht Fragen zusammen …</p></div></div></div>`;
+  actions.back = () => back();
+  const [sets, files] = await Promise.all([db.bySubject('sets', subjectId), db.bySubject('files', subjectId)]);
+  let cards = sets.filter(x => x.type === 'cards').flatMap(x => x.data.cards);
+  let pairs = makePairs(cards);
+  // Zu wenige Karteikarten? Dann baut Lena schnell welche aus den Unterlagen.
+  if (pairs.length < 12 && files.length) {
+    try {
+      const res = await Lena.cards(files, { count: 40, style: 'gemischt', name: subj.name });
+      pairs = makePairs([...cards, ...res.cards]);
+    } catch { /* dann eben nur mit den vorhandenen Karten */ }
+  }
+  if (!alive()) return;
+  const box = document.getElementById('gameBox');
+  if (pairs.length < 4) {
+    box.innerHTML = `<div class="empty card"><div class="game-owl" style="margin:0 auto 10px">${owlSVG({ cls: 'sad' })}</div><b>Noch zu wenig Stoff für das Spiel.</b><br>Lade Unterlagen hoch oder erstelle Karteikarten in diesem Fach, dann kann es losgehen.
+      <div class="btn-row" style="justify-content:center;margin-top:14px"><button class="btn primary" data-act="toSubject">Zum Fach</button></div></div>`;
+    actions.toSubject = () => go('subject', { id: subjectId }, { replace: true });
+    return;
+  }
+  cleanups.push(startGame(box, { subj, pairs, onExit: () => back() }));
+}
+
 function pickFiles(subjectId, after) {
   const input = document.createElement('input');
   input.type = 'file';
@@ -347,6 +399,9 @@ async function viewSubject({ id }) {
         <span class="ico ${t.cls}">${icon(t.icon)}</span><b>${t.name}</b><span>${t.desc}</span></button>`).join('')}
     </div>
 
+    ${files.length || sets.some(s => s.type === 'cards') ? `<button class="card tap game-banner" data-act="game">
+      <span class="owl-badge">${owlSVG()}</span><span class="main"><b>Eulen-Blitz spielen</b><span>60 Sekunden Quiz zu ${esc(subj.name)}${highscore(id) ? ` · Rekord ${highscore(id)}` : ''}</span></span><span class="go">⚡</span></button>` : ''}
+
     <div class="section-title"><h2>Unterlagen</h2><button class="btn small" data-act="add">${icon('plus')} Hinzufügen</button></div>
     ${files.length ? `<div class="list">${files.map(f => `<div class="row">
         <span class="ico">${fileBadge(f)}</span>
@@ -383,6 +438,7 @@ async function viewSubject({ id }) {
     },
     openSet: d => go('set', { id: d.id }),
     viewFile: d => go('file', { id: d.id }),
+    game: () => go('game', { subjectId: id }),
     delFile: async d => {
       const f = files.find(x => x.id === d.id);
       if (await confirmDialog(`„${f.name}“ wird aus diesem Fach entfernt.`, { ok: 'Löschen', danger: true })) {
@@ -532,8 +588,10 @@ const WAIT_LINES = {
 async function runGeneration({ subj, type, alive, focus, opts, files = [], extra = [], onFail }) {
   const t = TYPES[type];
   app.innerHTML = `<div class="screen">${topbar({ crumb: `${subj.emoji} ${esc(subj.name)}` })}
-    <div class="thinking"><div class="orb"></div><b>${t.name} wird erstellt</b><p id="waitLine">${WAIT_LINES[type][0]}</p></div>
+    <div id="owlBox"></div>
     <div id="live"></div></div>`;
+  const owl = owlAtWork(document.getElementById('owlBox'), { title: `Die Eule erstellt: ${t.name}`, line: WAIT_LINES[type][0] });
+  const started = Date.now();
   let busy = true;
   actions.back = async () => {
     if (!busy || await confirmDialog((CLOUD_AI ? 'Die KI' : 'Lena') + ' arbeitet noch. Wenn du zurückgehst, wird das Ergebnis trotzdem gespeichert.', { ok: 'Zurück', title: 'Zurückgehen?' })) back();
@@ -599,15 +657,23 @@ async function runGeneration({ subj, type, alive, focus, opts, files = [], extra
     }
     await db.put('sets', set);
     busy = false;
+    // Die Eule soll man arbeiten sehen, auch wenn Lena sehr schnell ist.
+    if (alive()) await new Promise(r => setTimeout(r, Math.max(0, 2600 - (Date.now() - started))));
+    clearInterval(timer);
+    if (alive()) {
+      const w = document.getElementById('waitLine');
+      if (w) w.textContent = 'Fertig! ✨';
+      await owl.done();
+    }
     sfx('done');
-    if (alive()) go('set', { id: set.id }, { replace: true });
+    if (alive()) { go('set', { id: set.id }, { replace: true }); owlFlyBy(); }
     else toast(`Fertig: ${set.title}`);
   } catch (err) {
     busy = false;
     clearInterval(timer);
     if (!alive()) { toast(err.message, 5000); return; }
-    app.querySelector('.thinking').innerHTML = `<div class="big" style="font-size:44px">😕</div><b>Das hat nicht geklappt</b><p>${esc(err.message)}</p>
-      <div class="btn-row" style="justify-content:center"><button class="btn" data-act="retryBack">Zurück</button>${err.code === 'nokey' || err.code === 'auth' ? '<button class="btn primary" data-act="settings">Einstellungen</button>' : ''}</div>`;
+    document.getElementById('owlBox').innerHTML = `<div class="thinking"><div class="game-owl">${owlSVG({ cls: 'sad' })}</div><b>Das hat nicht geklappt</b><p>${esc(err.message)}</p>
+      <div class="btn-row" style="justify-content:center"><button class="btn" data-act="retryBack">Zurück</button>${err.code === 'nokey' || err.code === 'auth' ? '<button class="btn primary" data-act="settings">Einstellungen</button>' : ''}</div></div>`;
     actions.retryBack = () => onFail ? onFail() : back();
     actions.settings = () => go('settings');
   }
@@ -864,10 +930,11 @@ function runExam(set, subj, alive, timed) {
     const open = qs.map((q, i) => ({ ...q, index: i, answer: answers[i] })).filter(q => q.type === 'open');
     let overall = '';
     if (open.length) {
-      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}<div class="thinking"><div class="orb"></div><b>Deine Antworten werden korrigiert</b><p>${CLOUD_AI ? 'Die KI' : 'Lena'} vergleicht deine Antworten mit der Musterlösung …</p></div></div>`;
+      app.innerHTML = `<div class="screen">${setTopbar(set, subj)}<div id="owlBox"></div></div>`;
+      owlAtWork(document.getElementById('owlBox'), { title: 'Die Eule korrigiert deine Antworten', line: `${CLOUD_AI ? 'Die KI' : 'Lena'} vergleicht sie mit der Musterlösung …` });
       try {
         const g = CLOUD_AI ? await AI.generateJSON({ prompt: PR.gradingPrompt(open), schema: AI.SCHEMAS.grading, maxTokens: 8000, effort: 'low' })
-          : await refineGrading(open, (await new Promise(r => setTimeout(r, 700)), Lena.grade(open)), t => { const el = app.querySelector('.thinking p'); if (el) el.textContent = t; });
+          : await refineGrading(open, (await new Promise(r => setTimeout(r, 1800)), Lena.grade(open)), t => { const el = document.getElementById('waitLine'); if (el) el.textContent = t; });
         for (const r of g.results) {
           if (results[r.index] && qs[r.index].type === 'open') {
             results[r.index].points = Math.max(0, Math.min(qs[r.index].points, r.points_awarded));
@@ -1090,7 +1157,7 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 12</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 13</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
       <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>

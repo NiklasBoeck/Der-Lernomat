@@ -13,6 +13,12 @@ Deine hochgeladenen Skripte kannst du direkt in der App lesen und durchsuchen (P
 
 Jedes Fach bekommt einen eigenen Ordner. Über den Knopf **„Lena fragen“** ist Lena auf jedem Bildschirm einen Klick entfernt und kennt die Unterlagen des Fachs, in dem du gerade bist (im Hauptmenü alle Unterlagen, am Mac auch mit ⌘K). Antworten enthalten Links wie „📄 skript.pdf · S. 12“, die direkt zur markierten Stelle im Skript springen. Lena kann dich auch abfragen („Frag mich ab!“).
 
+### Die Lernomat-Eule und der Eulen-Blitz
+
+Die Eule ist das Maskottchen der App. Sie begrüßt dich im Hauptmenü, fliegt herein und arbeitet sichtbar mit Stift und Papier, während Lena ein Lernset erstellt oder eine Klausur korrigiert, und sitzt auf dem Knopf „Lena fragen“.
+
+Im **Eulen-Blitz** (Lernspiel, im Hauptmenü und in jedem Fach) beantwortest du in 60 Sekunden so viele Fragen wie möglich. Die Fragen kommen aus deinen Karteikarten, sonst baut Lena sie aus den Unterlagen. Serien geben Bonuspunkte, der Rekord wird pro Fach gespeichert.
+
 ### Denk-Modus (freiwillig)
 
 In den Einstellungen lässt sich ein kleines Sprachmodell (Qwen 3.5, über [WebLLM](https://github.com/mlc-ai/web-llm)) einmalig aufs Gerät laden. Dann formuliert Lena Chat-Antworten in eigenen Worten (auch über die Unterlagen hinaus), erklärt Abschnitte in Zusammenfassungen und gibt genaueres Feedback bei offenen Klausurfragen. Das braucht WebGPU (iPhone/iPad mit iOS 26, Mac mit Safari 26 oder Chrome) und einmalig etwa 0,6 bis 1,5 GB Download. Ohne Denk-Modus stellt Lena die passenden Stellen aus dem Skript zusammen.
@@ -44,4 +50,4 @@ Der Schlüssel, deine Fächer und Dateien werden nur lokal auf dem jeweiligen Ge
 
 ## Technik
 
-Reine Web-App (HTML, CSS, JavaScript ohne Build-Schritt), offlinefähig per Service Worker. Daten in IndexedDB. Lena steckt in `js/lena/` (Textsuche, Lern-Werkstatt, Chat, Denk-Modus). Bibliotheken liegen gebündelt in `js/vendor/`. Melodie und Klänge werden mit Web Audio erzeugt.
+Reine Web-App (HTML, CSS, JavaScript ohne Build-Schritt), offlinefähig per Service Worker. Daten in IndexedDB. Lena steckt in `js/lena/` (Textsuche, Lern-Werkstatt, Chat, Denk-Modus), die Eule in `js/owl.js`, das Lernspiel in `js/game.js`. Bibliotheken liegen gebündelt in `js/vendor/`. Melodie und Klänge werden mit Web Audio erzeugt.
