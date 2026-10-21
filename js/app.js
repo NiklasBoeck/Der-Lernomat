@@ -3,7 +3,7 @@ import { db, uid, requestPersistence } from './db.js';
 import { icon, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
 import { renderPdf, renderText } from './viewer.js';
 import { esc, renderMarkdown } from './markdown.js';
-import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled, primeSpeech, sayHello, stopSpeaking } from './audio.js';
+import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled, sayHello, stopSpeaking } from './audio.js';
 import { ingestFile, filesToBlocks, fileBadge, formatSize, totalSize, CATEGORIES, ACCEPT } from './files.js';
 import * as AI from './ai.js';
 import * as PR from './prompts.js';
@@ -116,7 +116,6 @@ function viewSplash() {
   };
   const tryStart = async () => {
     if (started) return;
-    primeSpeech();
     await unlock();
     begin();
   };
@@ -152,7 +151,7 @@ async function owlHello(box) {
   owl.classList.add('waving', 'talking');
   box.parentElement.querySelector('.bubble')?.classList.add('speaking');
   const stop = () => { owl.classList.remove('talking'); box.parentElement?.querySelector('.bubble')?.classList.remove('speaking'); };
-  // Ohne Ton bewegt die Eule nur kurz den Schnabel.
+  // Ohne Aufnahme bewegt die Eule nur kurz den Schnabel.
   const t = setTimeout(stop, 6000);
   if (!(await sayHello())) { clearTimeout(t); setTimeout(stop, 2200); return; }
   clearTimeout(t);
