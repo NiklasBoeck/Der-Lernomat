@@ -1,5 +1,5 @@
 // Service Worker: macht den Lernomat offline nutzbar.
-const VERSION = 'lernomat-v15';
+const VERSION = 'lernomat-v16';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/style.css',
   'js/vendor/anthropic-sdk-0.131.0.min.js', 'js/vendor/jszip-3.10.1.min.js',
@@ -7,7 +7,7 @@ const SHELL = [
   'js/app.js', 'js/ai.js', 'js/config.js', 'js/audio.js', 'js/chat.js', 'js/db.js', 'js/files.js', 'js/markdown.js', 'js/prompts.js', 'js/ui.js', 'js/owl.js', 'js/game.js', 'js/progress.js', 'js/share.js',
   'js/lena/text.js', 'js/lena/engine.js', 'js/lena/assistant.js', 'js/lena/llm.js', 'js/lena/llm-worker.js',
   'js/lena/ocr.js', 'js/lena/tips.js', 'js/lena/enhance.js',
-  'icons/favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
+  'audio/eule-hallo.mp3', 'icons/favicon.svg', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
 const CDN = ['cdn.jsdelivr.net', 'cdnjs.cloudflare.com'];
 

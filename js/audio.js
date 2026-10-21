@@ -210,5 +210,49 @@ export async function speak(text, { onstart, onend } = {}) {
 }
 
 export function stopSpeaking() {
+  try { helloSrc?.stop(); } catch { /* egal */ }
   try { window.speechSynthesis?.cancel(); } catch { /* egal */ }
+}
+
+// Begrüßung der Eule: eine fest eingebaute Aufnahme, damit sie auf jedem Gerät gleich klingt.
+// Fehlt die Datei oder ist der Ton gesperrt, spricht die eingebaute Sprachausgabe des Geräts.
+const HELLO_URL = 'audio/eule-hallo.mp3';
+const HELLO_TEXT = 'Hallo, was möchtest du heute lernen?';
+let helloBuf = null;
+let helloSrc = null;
+
+async function helloBuffer() {
+  if (helloBuf) return helloBuf;
+  const res = await fetch(HELLO_URL);
+  if (!res.ok) throw new Error('Aufnahme fehlt');
+  const data = await res.arrayBuffer();
+  helloBuf = await new Promise((ok, fail) => ctx.decodeAudioData(data, ok, fail));
+  return helloBuf;
+}
+
+// Spielt die Begrüßung ab und wartet, bis sie fertig ist. false = kein Ton (aus oder gesperrt).
+export async function sayHello() {
+  if (!soundEnabled()) return false;
+  const c = ensure();
+  if (c && c.state === 'running') {
+    try {
+      const buf = await helloBuffer();
+      helloSrc?.stop();
+      const src = c.createBufferSource();
+      src.buffer = buf;
+      const g = c.createGain();
+      g.gain.value = 1;
+      src.connect(g).connect(c.destination);
+      // Melodie leiser, solange die Eule spricht.
+      master.gain.setTargetAtTime(0.18, c.currentTime, 0.1);
+      helloSrc = src;
+      await new Promise(res => { src.onended = res; src.start(); });
+      if (helloSrc === src) helloSrc = null;
+      master.gain.setTargetAtTime(0.55, c.currentTime, 0.25);
+      return true;
+    } catch { /* weiter mit der Sprachausgabe */ }
+  }
+  return new Promise(res => {
+    speak(HELLO_TEXT, { onend: () => res(true) }).then(ok => { if (!ok) res(false); });
+  });
 }

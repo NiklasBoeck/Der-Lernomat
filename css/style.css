@@ -610,23 +610,9 @@ textarea.input { min-height: 110px; resize: vertical; }
 .logo-mark.owl-logo { width: 130px; height: 140px; background: none; box-shadow: none; border-radius: 0; filter: drop-shadow(0 12px 18px rgba(60, 40, 20, .25)); }
 .logo-mark.owl-logo svg { width: 100%; height: 100%; }
 
-/* Begrüßung: Eule winkt, spricht und zeigt eine Sprechblase */
-.owl-spot { position: relative; display: block; }
-.owl-bubble {
-  position: absolute; left: 50%; bottom: calc(100% + 6px); z-index: 3;
-  width: max-content; max-width: min(260px, 80vw);
-  padding: 10px 16px; border-radius: 18px;
-  background: var(--surface); color: var(--text); box-shadow: var(--shadow-lg, var(--shadow));
-  font-family: var(--font-round); font-weight: 700; font-size: 17px; line-height: 1.3; text-align: center;
-  opacity: 0; transform: translate(-50%, 10px) scale(.6); transform-origin: 50% 100%;
-  pointer-events: none;
-}
-.owl-bubble::after {
-  content: ''; position: absolute; left: 50%; top: 100%; margin-left: -9px;
-  border: 9px solid transparent; border-top-color: var(--surface); border-bottom: 0;
-}
-.owl-bubble.show { animation: bubble-pop .45s cubic-bezier(.2, 1.6, .4, 1) forwards; }
-@keyframes bubble-pop { to { opacity: 1; transform: translate(-50%, 0) scale(1); } }
+/* Begrüßung im Hauptmenü: Eule winkt und spricht, die Sprechblase hüpft mit */
+.home-hero .bubble.speaking { animation: bubble-talk .5s ease-in-out 2; }
+@keyframes bubble-talk { 0%, 100% { transform: none; } 40% { transform: scale(1.03) rotate(-.5deg); } }
 .owl-svg .owl-mouth { transform-box: fill-box; transform-origin: 50% 0; transform: scaleY(0); }
 .owl-svg .owl-beak { transform-box: fill-box; transform-origin: 50% 0; }
 .owl-svg.talking .owl-mouth { animation: owl-mouth .22s ease-in-out infinite alternate; }
@@ -636,7 +622,7 @@ textarea.input { min-height: 110px; resize: vertical; }
 .owl-svg.waving .wr { animation: owl-wave .5s ease-in-out 4; }
 .owl-svg.waving .wl { animation: owl-flap-l .5s ease-in-out 2; }
 @keyframes owl-wave { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-70deg); } }
-@media (prefers-reduced-motion: reduce) { .owl-svg.waving .wl, .owl-svg.waving .wr, .owl-bubble.show { animation-duration: .01s; } }
+@media (prefers-reduced-motion: reduce) { .owl-svg.waving .wl, .owl-svg.waving .wr, .home-hero .bubble.speaking { animation-duration: .01s; } }
 .fab .owl-badge .owl-svg { filter: drop-shadow(0 1px 0 rgba(255, 255, 255, .5)); }
 
 /* ===== Hauptmenü ===== */
