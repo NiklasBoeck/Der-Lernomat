@@ -6,6 +6,7 @@ import * as Lena from './lena/assistant.js';
 import * as LLM from './lena/llm.js';
 import { icon, openModal, toast } from './ui.js';
 import { esc, renderMarkdown } from './markdown.js';
+import { owlSVG } from './owl.js';
 import { filesToBlocks } from './files.js';
 import * as AI from './ai.js';
 import { chatContextNote } from './prompts.js';
@@ -30,7 +31,7 @@ export function initChat(opts) {
   fab = document.createElement('button');
   fab.className = 'fab';
   fab.setAttribute('aria-label', CLOUD_AI ? 'KI fragen' : 'Lena fragen');
-  fab.innerHTML = CLOUD_AI ? `${icon('chat')}<span>KI fragen</span>` : `<span class="owl" aria-hidden="true">🦉</span><span>Lena fragen</span>`;
+  fab.innerHTML = CLOUD_AI ? `${icon('chat')}<span>KI fragen</span>` : `<span class="owl-badge">${owlSVG()}</span><span>Lena fragen</span>`;
   fab.hidden = true;
   fab.addEventListener('click', openChat);
   document.body.appendChild(fab);
@@ -97,7 +98,7 @@ async function openChat() {
   let offMode = null;
   const suggestions = (CLOUD_AI ? ctx?.suggestions : ctx?.lenaSuggestions) || (CLOUD_AI ? DEFAULT_SUGGESTIONS : LENA_SUGGESTIONS);
   const m = openModal(`<div class="chat">
-      <div class="chat-head">${CLOUD_AI ? '' : '<span class="lena-face" aria-hidden="true">🦉</span>'}<div><h2 style="margin:0">${CLOUD_AI ? 'Frag den Lernomat' : 'Lena'}</h2>
+      <div class="chat-head">${CLOUD_AI ? '' : `<span class="lena-face">${owlSVG()}</span>`}<div><h2 style="margin:0">${CLOUD_AI ? 'Frag den Lernomat' : 'Lena'}</h2>
         <small class="muted">${CLOUD_AI ? (ctx?.label ? `Kennt deine Unterlagen in „${esc(ctx.label)}“` : 'Allgemeine Fragen zum Lernen')
           : `Deine Lernassistentin · kennt ${ctx?.label ? `„${esc(ctx.label)}“` : 'alle deine Unterlagen'}`}</small>
         ${CLOUD_AI ? '' : '<small class="lena-mode" id="lenaMode"></small>'}</div>
@@ -118,7 +119,7 @@ async function openChat() {
   const draw = () => {
     log.innerHTML = history.length ? history.map((h, i) => bubble(h, i)).join('')
       : CLOUD_AI ? `<div class="empty"><div class="big">💬</div>Frag mich alles zu deinem Lernstoff: Erklärungen, Beispiele, Eselsbrücken oder Übungsfragen.</div>`
-      : `<div class="empty"><div class="big">🦉</div>Hallo, ich bin Lena! Frag mich etwas zu deinen Unterlagen. Ich antworte mit Links, die direkt zur Stelle im Skript springen.</div>`;
+      : `<div class="empty"><div class="game-owl" style="margin:0 auto 8px">${owlSVG({ cap: true })}</div>Hallo, ich bin Lena, die Lernomat-Eule! Frag mich etwas zu deinen Unterlagen. Ich antworte mit Links, die direkt zur Stelle im Skript springen.</div>`;
     sugg.innerHTML = history.length ? '' : suggestions.map(s => `<button type="button" class="chip">${esc(s)}</button>`).join('');
     // Vorschläge mit „…“ füllen nur das Eingabefeld, die anderen werden direkt gesendet.
     sugg.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
