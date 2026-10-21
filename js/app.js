@@ -3,7 +3,7 @@ import { db, uid, requestPersistence } from './db.js';
 import { icon, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
 import { renderPdf, renderText } from './viewer.js';
 import { esc, renderMarkdown } from './markdown.js';
-import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled } from './audio.js';
+import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled, primeSpeech, speak, stopSpeaking } from './audio.js';
 import { ingestFile, filesToBlocks, fileBadge, formatSize, totalSize, CATEGORIES, ACCEPT } from './files.js';
 import * as AI from './ai.js';
 import * as PR from './prompts.js';
@@ -90,7 +90,10 @@ function viewSplash() {
       <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
       <button class="sound-pill" id="soundPill" hidden>${icon('volume')} Ton an</button>
       <button class="title-btn" id="titleBtn" aria-label="Der Lernomat öffnen">
-        <span class="logo-mark owl-logo">${owlSVG({ cap: true })}</span>
+        <span class="owl-spot">
+          <span class="owl-bubble" id="owlBubble" aria-hidden="true"></span>
+          <span class="logo-mark owl-logo">${owlSVG({ cap: true })}</span>
+        </span>
         <span class="title-text">${title}</span>
         <span class="subtitle">${CLOUD_AI ? 'Dein KI-Lernbegleiter' : 'Dein Lernbegleiter mit Lena'}</span>
       </button>
@@ -111,9 +114,32 @@ function viewSplash() {
     pill.hidden = true;
     hint.textContent = 'Tippe auf den Titel, um loszulegen';
     setTimeout(playIntro, 250);
+    greetTimer = setTimeout(greet, 1300);
   };
+  // Die Eule winkt und sagt Hallo. Ohne Stimme (Ton aus) erscheint nur die Sprechblase.
+  const GREETING = 'Hallo, was möchtest du heute lernen?';
+  let greetTimer = 0;
+  const greet = async () => {
+    const owl = splash.querySelector('.owl-logo .owl-svg');
+    const bubble = document.getElementById('owlBubble');
+    if (!owl || !bubble) return;
+    bubble.textContent = GREETING;
+    bubble.classList.add('show');
+    owl.classList.add('waving');
+    const talk = on => owl.classList.toggle('talking', on);
+    let fallback = setTimeout(() => talk(false), 2600);
+    talk(true);
+    const spoken = await speak(GREETING, {
+      onstart: () => { clearTimeout(fallback); talk(true); },
+      onend: () => { clearTimeout(fallback); talk(false); },
+    });
+    // Manche Geräte melden das Ende nicht zuverlässig: dann nach spätestens 5 Sekunden aufhören.
+    if (spoken) { clearTimeout(fallback); fallback = setTimeout(() => talk(false), 5000); }
+  };
+  cleanups.push(() => { clearTimeout(greetTimer); stopSpeaking(); });
   const tryStart = async () => {
     if (started) return;
+    primeSpeech();
     await unlock();
     begin();
   };
@@ -1157,7 +1183,7 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 13</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 14</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
       <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>
