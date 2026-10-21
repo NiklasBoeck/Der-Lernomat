@@ -13,6 +13,13 @@ Deine hochgeladenen Skripte kannst du direkt in der App lesen und durchsuchen (P
 
 Jedes Fach bekommt einen eigenen Ordner. Über den Knopf **„Lena fragen“** ist Lena auf jedem Bildschirm einen Klick entfernt und kennt die Unterlagen des Fachs, in dem du gerade bist (im Hauptmenü alle Unterlagen, am Mac auch mit ⌘K). Antworten enthalten Links wie „📄 skript.pdf · S. 12“, die direkt zur markierten Stelle im Skript springen. Lena kann dich auch abfragen („Frag mich ab!“).
 
+### Lernfortschritt
+
+- **Wiederholung mit System:** Karteikarten, die du weißt, kommen nach 1, 3, 7, 16 Tagen und dann in immer längeren Abständen wieder, kurz bevor du sie vergessen würdest. „Nochmal“ holt sie morgen zurück. Im Hauptmenü und im Fach siehst du, wie viele Karten heute fällig sind.
+- **Tagesziel und Serie:** Jede Karte, jede Frage im Eulen-Blitz und jede Klausuraufgabe zählt. Schaffst du dein Ziel jeden Tag, wächst deine Serie 🔥. Die tägliche Erinnerung kommt als Termin in deinen Kalender (Web-Apps dürfen auf iPhone und Mac keinen Wecker stellen) und zusätzlich als Mitteilung, wenn der Lernomat offen ist.
+- **Fortschritt pro Fach:** wie viel schon sitzt, die letzte Klausur, Themen mit Lücken zuerst und ob du mit dem Lernplan bis zur Prüfung im Plan liegst.
+- **Teilen ohne Konto:** Jedes Lernset lässt sich per Link (der Inhalt steckt im Link selbst) oder als Datei an Freunde schicken. Dein eigener Fortschritt bleibt bei dir.
+
 ### Die Lernomat-Eule und der Eulen-Blitz
 
 Die Eule ist das Maskottchen der App. Sie begrüßt dich im Hauptmenü, fliegt herein und arbeitet sichtbar mit Stift und Papier, während Lena ein Lernset erstellt oder eine Klausur korrigiert, und sitzt auf dem Knopf „Lena fragen“.

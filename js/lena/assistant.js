@@ -1,6 +1,6 @@
 // Lena beantwortet Fragen zu den Unterlagen: sucht passende Stellen und antwortet mit Links zur Fundstelle.
 // Mit Denk-Modus formuliert ein kleines Sprachmodell die Antwort, sonst stellt Lena die passenden Sätze zusammen.
-import { corpora, queryTerms, search, bestSentences, citeOf, fold, stem, shorten, clean, baseName, contentWords } from './text.js';
+import { corpora, queryTerms, search, bestSentences, citeOf, fold, stem, shorten, clean, baseName, contentWords, withContext, emphasize, coverage } from './text.js';
 import { definitionsOf, keywordsOf, grade } from './engine.js';
 import * as LLM from './llm.js';
 import { tipFor } from './tips.js';
@@ -47,13 +47,15 @@ function fileOf(cs, id) { return cs.find(c => c.file.id === id)?.file; }
 
 // ===== Antworten ohne Sprachmodell =====
 function answerWhere(cs, terms) {
-  const hits = search(cs, terms, { limit: 5 });
+  // Nur Stellen, die wirklich passen (nicht alles, wo ein Wort zufällig vorkommt).
+  const all = search(cs, terms, { limit: 5 });
+  const hits = all.filter(h => h.score >= all[0]?.score * 0.4);
   if (!hits.length) return null;
   const parts = [P('Das habe ich in deinen Unterlagen gefunden:')];
   for (const h of hits) {
     const s = bestSentences([h], terms, { limit: 1 })[0] || h.sents[0];
     const f = h.file;
-    parts.push(P(`\n- **${clean(baseName(f.name))}${s.page ? `, Seite ${s.page}` : ''}** (${clean(shorten(h.section.title, 50))}): „${clean(shorten(s.text, 160))}“ `, [citeOf(s, f)]));
+    parts.push(P(`\n- **${clean(baseName(f.name))}${s.page ? `, Seite ${s.page}` : ''}** (${clean(shorten(h.section.title, 50))}): „${emphasize(clean(shorten(s.text, 160)), terms)}“ `, [citeOf(s, f)]));
   }
   parts.push(P('\n\nTipp auf einen Link, dann springe ich direkt zur Stelle.'));
   return parts;
@@ -72,13 +74,17 @@ function answerDefine(cs, term, terms) {
   const used = new Set();
   if (defs[0]) {
     const d = defs[0];
-    used.add(d.s);
-    parts.push(P(`**${clean(d.term)}:** ${clean(d.def)} `, [citeOf(d.s, fileOf(cs, d.s.fileId))]));
+    // Mit dem Satz davor oder danach, wenn er dazugehört (z. B. „Dabei …“).
+    const full = d.kind === 4 ? (used.add(d.s), d.def) : withContext(d.s, 520, used);
+    parts.push(P(`**${clean(d.term)}:** ${clean(full)} `, [citeOf(d.s, fileOf(cs, d.s.fileId))]));
   }
   const more = bestSentences(hits, tt, { limit: defs[0] ? 2 : 3, bonus: s => (/\b(ist|sind|bezeichnet|bedeutet|versteht man)\b/.test(s.text) ? 0.5 : 0) }).filter(s => !used.has(s));
   if (!more.length && !parts.length) return null;
   if (more.length) parts.push(P(parts.length ? '\n\nAußerdem steht dazu in deinen Unterlagen:' : `Das steht zu „${clean(term)}“ in deinen Unterlagen:`));
-  for (const s of more) parts.push(P(`\n- ${clean(shorten(s.text, 320))} `, [citeOf(s, fileOf(cs, s.fileId))]));
+  for (const s of more) {
+    const t = withContext(s, 420, used);
+    if (t) parts.push(P(`\n- ${emphasize(clean(shorten(t, 340)), tt)} `, [citeOf(s, fileOf(cs, s.fileId))]));
+  }
   void terms;
   return parts;
 }
@@ -128,8 +134,21 @@ function answerDefault(cs, terms) {
   if (!hits.length) return null;
   const best = bestSentences(hits, terms, { limit: 4 });
   if (!best.length) return null;
-  const parts = [P('Dazu steht in deinen Unterlagen:')];
-  for (const s of best) parts.push(P(`\n- ${clean(shorten(s.text, 320))} `, [citeOf(s, fileOf(cs, s.fileId))]));
+  // Passt die beste Stelle nur zu einem Teil der Frage, sagt Lena das ehrlich.
+  const strong = terms.filter(t => t.w >= 1);
+  const weak = strong.length > 1 && coverage(hits[0], strong) < 0.5;
+  const parts = [P(weak ? 'Genau dazu habe ich nichts gefunden. Am nächsten kommt das hier:' : 'Dazu steht in deinen Unterlagen:')];
+  // Sätze aus demselben Abschnitt in der Reihenfolge des Skripts, damit sie sich wie ein Text lesen.
+  const order = new Map();
+  best.forEach((s, i) => { if (!order.has(s.section)) order.set(s.section, i); });
+  best.sort((a, b) => a.section === b.section ? a.i - b.i : order.get(a.section) - order.get(b.section));
+  const used = new Set();
+  for (const s of best) {
+    const t = withContext(s, 420, used);
+    if (t) parts.push(P(`\n- ${emphasize(clean(shorten(t, 360)), terms)} `, [citeOf(s, fileOf(cs, s.fileId))]));
+  }
+  const files = new Set(best.map(s => s.fileId));
+  parts.push(P(`\n\n${files.size > 1 ? `Gefunden in ${files.size} Dateien. ` : ''}Tipp auf 📄, dann springe ich zur Stelle im Skript.`));
   return parts;
 }
 
@@ -220,7 +239,7 @@ async function answerLLM(cs, q, terms, history, onText, { only = null, detail = 
     budget -= text.length;
     src.push({ h, text, s: bestSentences([h], terms, { limit: 1 })[0] || h.sents[0] });
   }
-  const excerpt = src.length ? src.map((x, i) => `[${i + 1}] (${baseName(x.h.file.name)}${x.h.page ? `, S. ${x.h.page}` : ''}) ${x.text}`).join('\n\n') : '(Keine passenden Stellen in den Unterlagen.)';
+  const excerpt = src.length ? src.map((x, i) => `[${i + 1}] (${baseName(x.h.file.name)}${x.h.page ? `, S. ${x.h.page}` : ''}${x.h.section && !x.h.section.auto ? `, Abschnitt „${x.h.section.title}“` : ''}) ${x.text}`).join('\n\n') : '(Keine passenden Stellen in den Unterlagen.)';
   const system = SYSTEM + (noSolutions ? '\nWICHTIG: Die Person schreibt gerade eine Übungsklausur. Verrate keine Lösungen, gib höchstens kleine Denkanstöße.' : '');
   const prev = history.slice(-5, -1).map(h => ({ role: h.role, content: shorten(h.display || h.content, 500) }));
   const where = detail ? `\n\n(Ich bin gerade in der App ${shorten(detail, 400)})` : '';
@@ -239,7 +258,7 @@ async function answerLLM(cs, q, terms, history, onText, { only = null, detail = 
     last = re.lastIndex;
   }
   parts.push(P(text.slice(last)));
-  if (!used && cites.length && !noSolutions) parts.push(P('\n\nPassende Stellen: ', cites.slice(0, 3)));
+  if (!used && cites.length && !noSolutions) parts.push(P('\n\n**Quellen:** ', cites.slice(0, 3)));
   return parts;
 }
 

@@ -522,11 +522,15 @@ export async function plan(files, { focus = [], examDate = '', perDay = '1 Stund
   const span = exam ? Math.max(1, days - 1) : days;
   steps.forEach((s, i) => {
     const d = Math.min(span - 1, Math.floor(i * span / steps.length));
-    s.day = exam ? fmt(new Date(today.getTime() + d * 864e5)) : `Tag ${d + 1}`;
+    const at = new Date(today); at.setDate(at.getDate() + d);
+    s.day = exam ? fmt(at) : `Tag ${d + 1}`;
+    // Datum des Schritts, damit der Fortschritt zeigen kann, ob man im Plan liegt.
+    s.date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
   });
   const title = focus.length ? focus.join(', ') : name || (files.length === 1 ? baseName(files[0].name) : 'deine Prüfung');
   return {
     title: `Lernplan: ${shorten(title, 60)}`,
+    examDate: exam ? examDate : '',
     overview: `${blocks.length} Lernblöcke in ${days} ${days === 1 ? 'Tag' : 'Tagen'}, mit etwa ${mins >= 180 ? '3 Stunden' : perDay} pro Tag: erst verstehen, dann mit Karteikarten einprägen, zum Schluss mit Übungsklausuren prüfen.${goal ? ` Dein Ziel: ${goal}.` : ''}`,
     steps,
   };

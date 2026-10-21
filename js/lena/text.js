@@ -214,14 +214,14 @@ function build(c) {
     const list = p.bullet ? [p.text.replace(BULLET, '').trim()] : sentences(p.text);
     for (const t of list) {
       if (t.length < 2) continue;
-      const s = { text: t, fold: fold(t), page: p.page, char: p.char, para: p, section: sec, fileId: c.file.id, bullet: p.bullet, i: c.sents.length };
+      const s = { text: t, fold: fold(t), page: p.page, char: p.char, para: p, section: sec, fileId: c.file.id, bullet: p.bullet, i: c.sents.length, all: c.sents };
       c.sents.push(s);
       sec.sents.push(s);
     }
   }
   c.sections = c.sections.filter(s => s.sents.length || s.title);
   // Abschnitte ohne Überschrift bekommen eine aus Datei und Seite.
-  for (const s of c.sections) if (!s.title) s.title = s.page ? `${baseName(c.file.name)}, S. ${s.page}` : baseName(c.file.name);
+  for (const s of c.sections) if (!s.title) { s.title = s.page ? `${baseName(c.file.name)}, S. ${s.page}` : baseName(c.file.name); s.auto = true; }
   // Suchhäppchen: aufeinanderfolgende Sätze derselben Seite, je ca. 700 Zeichen.
   let cur = null;
   for (const s of c.sents) {
@@ -248,6 +248,12 @@ export function search(cs, terms, { limit = 6 } = {}) {
   const passages = cs.flatMap(c => c.passages);
   if (!passages.length || !terms.length) return [];
   const N = passages.length;
+  const pairs = [];
+  for (let i = 1; i < terms.length; i++) {
+    if (terms[i].w < 1 || terms[i - 1].w < 1) continue;
+    const esc = t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    pairs.push(new RegExp(`${esc(terms[i - 1].t)}[\\p{L}\\d]*[\\s-]+(?:[\\p{L}\\d]+\\s+)?${esc(terms[i].t)}`, 'u'));
+  }
   const avg = passages.reduce((s, p) => s + p.len, 0) / N;
   const stats = terms.map(({ t, w }) => {
     const tf = passages.map(p => countTerm(p.fold, t));
@@ -263,6 +269,8 @@ export function search(cs, terms, { limit = 6 } = {}) {
       score += st.w * st.idf * (tf * 2.2) / (tf + 1.2 * (0.25 + 0.75 * p.len / avg));
     }
     const total = terms.reduce((s, x) => s + x.w, 0);
+    // Stehen zwei Suchwörter direkt hintereinander (wie in der Frage), passt das Häppchen besonders gut.
+    for (const re of pairs) if (re.test(p.fold)) score *= 1.25;
     return { p, score: score * (0.5 + hit / total) };
   }).filter(x => x.score > 0);
   scored.sort((a, b) => b.score - a.score);
@@ -289,8 +297,43 @@ export function bestSentences(hits, terms, { limit = 4, bonus = () => 0 } = {}) 
   return out.filter(x => { const k = x.s.fold.slice(0, 80); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, limit).map(x => x.s);
 }
 
-// Fundstelle für einen Link zur Stelle im Skript.
+// Fundstelle für einen Link zur Stelle im Skript: Datei, Seite und Abschnitt.
 export function citeOf(s, file) {
   const short = file.name.length > 22 ? file.name.slice(0, 20) + '…' : file.name;
-  return { fileId: file.id, page: s.page, char: s.char, q: shorten(s.text, 160).replace(/ …$/, ''), label: s.page ? `${short} · S. ${s.page}` : short };
+  const sec = sectionName(s.section);
+  return { fileId: file.id, page: s.page, char: s.char, q: shorten(s.text, 160).replace(/ …$/, ''), section: sec, label: (s.page ? `${short} · S. ${s.page}` : short) + (sec ? ` · ${shorten(sec, 28)}` : '') };
+}
+
+// Echte Überschrift des Abschnitts (nicht die aus Datei und Seite gebaute).
+export const sectionName = sec => (sec && !sec.auto && sec.title) || '';
+
+// Satz mit dem, was dazugehört: der nächste Satz, wenn er den Gedanken fortsetzt,
+// und der vorige, wenn der Satz mit „Dieser“, „Dabei“ & Co. auf ihn verweist.
+const LINK = /^(dabei|diese[rsmn]?|dies|hierbei|hierzu|dadurch|deshalb|daher|somit|außerdem|zudem|jedoch|allerdings|sie|er|es|dafür|damit|darüber hinaus|man spricht|so)(?=[\s,]|$)/i;
+// used: schon gezeigte Sätze. Steht ein Satz schon in einer anderen Antwortzeile, kommt null zurück.
+export function withContext(s, max = 420, used = new Set()) {
+  if (used.has(s)) return null;
+  const list = s.all || [];
+  let text = s.text;
+  used.add(s);
+  const prev = list[s.i - 1], next = list[s.i + 1];
+  if (prev && !used.has(prev) && prev.section === s.section && !s.bullet && LINK.test(s.text) && prev.text.length + text.length < max) { text = prev.text + ' ' + text; used.add(prev); }
+  if (next && !used.has(next) && next.section === s.section && next.para === s.para && LINK.test(next.text) && next.text.length + text.length < max) { text += ' ' + next.text; used.add(next); }
+  return text;
+}
+
+// Suchwörter fett hervorheben (nach clean(), damit Sternchen aus dem Skript nicht stören).
+export function emphasize(text, terms) {
+  const ts = terms.filter(t => t.w >= 1 && t.t.length >= 3).map(t => t.t);
+  if (!ts.length) return text;
+  return text.replace(/[\p{L}\d][\p{L}\d\-]{2,}/gu, w => {
+    const f = fold(w);
+    return ts.some(t => stem(f) === t || f.startsWith(t) || (t.length >= 5 && f.includes(t))) ? `**${w}**` : w;
+  });
+}
+
+// Wie gut deckt eine Fundstelle die Frage ab (0 bis 1)?
+export function coverage(hit, terms) {
+  const total = terms.reduce((a, t) => a + t.w, 0) || 1;
+  return terms.reduce((a, t) => a + (countTerm(hit.fold, t.t) ? t.w : 0), 0) / total;
 }
