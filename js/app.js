@@ -151,7 +151,7 @@ async function owlHello(box) {
   owl.classList.add('waving', 'talking');
   box.parentElement.querySelector('.bubble')?.classList.add('speaking');
   const stop = () => { owl.classList.remove('talking'); box.parentElement?.querySelector('.bubble')?.classList.remove('speaking'); };
-  // Ohne Aufnahme bewegt die Eule nur kurz den Schnabel.
+  // Ohne Ton bewegt die Eule nur kurz den Schnabel.
   const t = setTimeout(stop, 6000);
   if (!(await sayHello())) { clearTimeout(t); setTimeout(stop, 2200); return; }
   clearTimeout(t);
@@ -237,7 +237,7 @@ async function viewHome() {
     game: () => gameChooser(subjects),
     review: () => go('review', {}),
     goal: goalDialog,
-    poke: (_d, el) => owlHello(el),
+    poke: (_d, el) => { unlock(); owlHello(el); },
   };
   cleanups.push(stopSpeaking);
   if (!greeted) {
@@ -1412,7 +1412,7 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 16</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 17</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
       <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>

@@ -142,9 +142,9 @@ export function stopSpeaking() {
   try { helloSrc?.stop(); } catch { /* egal */ }
 }
 
-// Begrüßung der Eule als fest eingebaute Aufnahme. Solange es keine Aufnahme gibt (HELLO_URL = null),
-// zeigt die Eule nur die Sprechblase. Später: Datei nach audio/ legen, hier eintragen und in sw.js aufnehmen.
-const HELLO_URL = null;
+// Begrüßung der Eule als fest eingebaute Aufnahme (von Lena eingesprochen).
+// Ohne Ton (aus oder noch gesperrt) zeigt die Eule nur die Sprechblase.
+const HELLO_URL = 'audio/eule-hallo.mp3';
 let helloBuf = null;
 let helloSrc = null;
 
