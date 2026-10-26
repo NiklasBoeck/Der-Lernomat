@@ -27,69 +27,164 @@ function findKey(hay, q) {
 }
 
 // ===== PDF =====
-export async function renderPdf(container, blob, { onPage } = {}) {
+// Große Leinwände bringen Safari auf dem iPhone zum Absturz, darum begrenzt.
+const MAX_PIXELS = 12e6;
+
+export async function renderPdf(container, blob, { onPage, colsFor = () => 1 } = {}) {
   const pdfjs = await loadPdfjs();
   const doc = await pdfjs.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
   const first = await doc.getPage(1);
   const base = first.getViewport({ scale: 1 });
-  const width = () => Math.min(container.clientWidth, 1000);
-  const pages = [];
+  let zoom = 1;
+  let cols = 1;
+  const wrap = document.createElement('div');
+  wrap.className = 'pdf-pages';
   container.innerHTML = '';
+  container.classList.add('pdf-doc');
+  container.appendChild(wrap);
+  const pages = [];
   for (let n = 1; n <= doc.numPages; n++) {
     const el = document.createElement('div');
     el.className = 'pdf-page';
     el.dataset.page = n;
-    el.style.height = Math.round(width() * base.height / base.width) + 'px';
     el.innerHTML = `<span class="pdf-num">${n}</span>`;
-    container.appendChild(el);
-    pages.push({ el, rendered: null, textDivs: [] });
+    wrap.appendChild(el);
+    pages.push({ el, n, ratio: base.height / base.width, rendered: null, gen: 0, task: null, textDivs: [] });
   }
+
+  // Breite, die eine Seite bei Zoom 100 % bekommt (ganze Breite bzw. halbe bei zwei Seiten).
+  const fitWidth = () => {
+    const cs = getComputedStyle(container);
+    return container.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  };
+  const gap = () => parseFloat(getComputedStyle(wrap).columnGap) || 0;
+  const pageWidth = () => {
+    const w = fitWidth();
+    const one = cols === 2 ? (w - gap()) / 2 : Math.min(w, 1000);
+    return Math.max(120, Math.floor(one * zoom));
+  };
+  const layout = () => {
+    const w = pageWidth();
+    wrap.style.gridTemplateColumns = `repeat(${cols}, ${w}px)`;
+    for (const p of pages) { p.el.style.width = w + 'px'; p.el.style.height = Math.round(w * p.ratio) + 'px'; }
+  };
+
+  const freeCanvases = el => el.querySelectorAll('canvas').forEach(c => { c.width = 0; c.height = 0; });
+  const unload = p => {
+    p.gen++;
+    p.task?.cancel();
+    p.task = null;
+    p.rendered = null;
+    p.textDivs = [];
+    freeCanvases(p.el);
+    p.el.classList.remove('stale');
+    p.el.innerHTML = `<span class="pdf-num">${p.n}</span>`;
+  };
 
   const renderPage = n => {
     const p = pages[n - 1];
     if (p.rendered) return p.rendered;
+    const gen = ++p.gen;
     p.rendered = (async () => {
       const page = await doc.getPage(n);
-      const scale = width() / page.getViewport({ scale: 1 }).width;
+      if (gen !== p.gen) return;
+      const v1 = page.getViewport({ scale: 1 });
+      p.ratio = v1.height / v1.width;
+      const scale = pageWidth() / v1.width;
       const vp = page.getViewport({ scale });
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const dpr = Math.min(window.devicePixelRatio || 1, 3, Math.sqrt(MAX_PIXELS / (vp.width * vp.height)));
       const canvas = document.createElement('canvas');
       canvas.width = Math.floor(vp.width * dpr);
       canvas.height = Math.floor(vp.height * dpr);
-      canvas.style.width = vp.width + 'px';
-      canvas.style.height = vp.height + 'px';
-      p.el.style.height = vp.height + 'px';
+      p.el.style.height = Math.round(vp.height) + 'px';
+      p.task = page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+      try { await p.task.promise; } catch { canvas.width = canvas.height = 0; return; }
+      if (gen !== p.gen) { canvas.width = canvas.height = 0; return; }
+      p.task = null;
       p.el.style.setProperty('--scale-factor', scale);
-      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null }).promise;
       const tl = document.createElement('div');
       tl.className = 'textLayer';
+      freeCanvases(p.el);
+      p.el.classList.remove('stale');
       p.el.replaceChildren(canvas, tl);
       const layer = new pdfjs.TextLayer({ textContentSource: page.streamTextContent(), container: tl, viewport: vp });
       await layer.render();
-      p.textDivs = layer.textDivs;
+      if (gen === p.gen) p.textDivs = layer.textDivs;
     })();
+    p.rendered.catch(() => { if (gen === p.gen) p.rendered = null; });
     return p.rendered;
   };
 
-  const io = new IntersectionObserver(entries => {
-    for (const e of entries) if (e.isIntersecting) renderPage(Number(e.target.dataset.page));
-  }, { rootMargin: '900px 0px' });
-  pages.forEach(p => io.observe(p.el));
-
+  // Nur Seiten in der Nähe des Bildschirms zeichnen, weit entfernte wieder freigeben.
   let current = 1;
-  const onScroll = () => {
-    const mid = window.innerHeight / 2;
+  let raf = 0;
+  const update = () => {
+    raf = 0;
+    const h = window.innerHeight;
+    const mid = h / 2;
+    let found = 0;
     for (const p of pages) {
       const r = p.el.getBoundingClientRect();
-      if (r.top <= mid && r.bottom >= mid) {
-        const n = Number(p.el.dataset.page);
-        if (n !== current) { current = n; onPage && onPage(n, doc.numPages); }
-        break;
-      }
+      if (r.bottom > -h && r.top < h * 2) renderPage(p.n);
+      else if ((r.bottom < -h * 4 || r.top > h * 5) && (p.rendered || p.el.firstElementChild?.tagName === 'CANVAS')) unload(p);
+      if (!found && r.top <= mid && r.bottom >= mid) found = p.n;
     }
+    const se = document.scrollingElement;
+    if (se.scrollTop + h >= se.scrollHeight - 4) found = doc.numPages;
+    if (found && found !== current) { current = found; onPage && onPage(current, doc.numPages); }
   };
+  const onScroll = () => { raf ||= requestAnimationFrame(update); };
   window.addEventListener('scroll', onScroll, { passive: true });
+  container.addEventListener('scroll', onScroll, { passive: true });
+
+  // Merkt sich, welcher Punkt einer Seite an einer Bildschirmstelle liegt, damit er nach Zoom oder Drehen dort bleibt.
+  const anchor = (x = window.innerWidth / 2, y = window.innerHeight * 0.3) => {
+    let best = null;
+    for (const p of pages) {
+      const r = p.el.getBoundingClientRect();
+      if (r.bottom < y) continue;
+      const hit = { p, fx: (x - r.left) / r.width, fy: (y - r.top) / r.height, x, y };
+      if (r.top > y) { best ||= hit; break; }
+      if (!best || (r.left <= x && r.right >= x)) best = hit;
+    }
+    return best;
+  };
+  const restore = a => {
+    if (!a) return;
+    const r = a.p.el.getBoundingClientRect();
+    window.scrollBy(0, r.top + a.fy * r.height - a.y);
+    container.scrollLeft += r.left + a.fx * r.width - a.x;
+  };
+  const relayout = a => {
+    for (const p of pages) {
+      if (!p.rendered && !p.el.querySelector('canvas')) continue;
+      p.gen++;
+      p.task?.cancel();
+      p.task = null;
+      p.rendered = null;
+      p.el.classList.add('stale');
+    }
+    layout();
+    restore(a);
+    update();
+  };
+
+  // Auf- und Zuklappen bzw. Drehen: Spaltenzahl neu wählen und an derselben Stelle weiterlesen.
+  const pickCols = () => (doc.numPages > 1 && colsFor(fitWidth()) === 2 ? 2 : 1);
+  cols = pickCols();
+  layout();
+  let lastWidth = fitWidth();
+  const ro = new ResizeObserver(() => {
+    const w = fitWidth();
+    if (Math.abs(w - lastWidth) < 2) return;
+    lastWidth = w;
+    const a = anchor();
+    cols = pickCols();
+    relayout(a);
+  });
+  ro.observe(container);
   onPage && onPage(1, doc.numPages);
+  update();
 
   const clearMarks = () => container.querySelectorAll('.textLayer .hl').forEach(s => s.classList.remove('hl'));
 
@@ -122,8 +217,9 @@ export async function renderPdf(container, blob, { onPage } = {}) {
     return texts[n];
   };
 
+  const clamp = n => Math.max(1, Math.min(doc.numPages, Number(n) || 1));
   const goTo = async (n, q) => {
-    n = Math.max(1, Math.min(doc.numPages, Number(n) || 1));
+    n = clamp(n);
     // Steht das Zitat nicht auf der genannten Seite, auf den Nachbarseiten suchen.
     if (q && !findKey(await pageText(n), q)) {
       for (const m of [n + 1, n - 1, n + 2]) {
@@ -141,6 +237,15 @@ export async function renderPdf(container, blob, { onPage } = {}) {
     return !!el || !q;
   };
 
+  // Blättern: eine Seite bzw. eine Doppelseite weiter.
+  const step = dir => {
+    let n = current;
+    if (cols === 2) n -= (n - 1) % 2;
+    n = clamp(n + dir * cols);
+    pages[n - 1].el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    return n;
+  };
+
   let lastHit = 0;
   const search = async (term, dir = 1) => {
     if (!key(term)) return false;
@@ -154,8 +259,36 @@ export async function renderPdf(container, blob, { onPage } = {}) {
   return {
     pages: doc.numPages,
     get page() { return current; },
-    goTo, search,
-    destroy() { io.disconnect(); window.removeEventListener('scroll', onScroll); doc.destroy(); },
+    get zoom() { return zoom; },
+    get cols() { return cols; },
+    goTo, search, step,
+    // Zoom um einen Bildschirmpunkt (from) und diesen Punkt danach an "to" setzen (beim Kneifen wandert die Mitte mit).
+    setZoom(z, from, to = from) {
+      z = Math.max(0.5, Math.min(5, z));
+      if (Math.abs(z - zoom) < 0.01) return zoom;
+      const a = from ? anchor(from.x, from.y) : anchor();
+      if (a && to) { a.x = to.x; a.y = to.y; }
+      zoom = z;
+      relayout(a);
+      return zoom;
+    },
+    // Spaltenzahl nach geänderter Vorliebe neu bestimmen.
+    refreshCols() {
+      const c = pickCols();
+      if (c === cols) return;
+      const a = anchor();
+      cols = c;
+      relayout(a);
+    },
+    get fitWidth() { return fitWidth(); },
+    destroy() {
+      ro.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      container.removeEventListener('scroll', onScroll);
+      cancelAnimationFrame(raf);
+      pages.forEach(unload);
+      doc.destroy();
+    },
   };
 }
 

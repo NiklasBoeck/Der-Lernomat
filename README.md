@@ -9,7 +9,7 @@ Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne AP
 - **Übungsklausuren** mit Zeitlimit, automatischer Korrektur, Note und Feedback
 - **Lernpläne** bis zu deinem Prüfungstermin
 
-Deine hochgeladenen Skripte kannst du direkt in der App lesen und durchsuchen (PDF, Word, PowerPoint, Text, Fotos).
+Deine hochgeladenen Skripte kannst du direkt in der App lesen und durchsuchen (PDF, Word, PowerPoint, Text, Fotos). PDFs öffnen im Lesemodus: Die Leiste oben verschwindet beim Wischen nach oben (Tippen holt sie zurück), Zoom mit zwei Fingern oder Doppeltippen, Seitenfarbe Original, Dunkel oder Sepia, auf breiten Bildschirmen (aufgeklapptes Klapp-iPhone, iPad, quer) wahlweise zwei Seiten nebeneinander. Der Lernomat merkt sich, auf welcher Seite du warst.
 
 Jedes Fach bekommt einen eigenen Ordner. Über den Knopf **„Lena fragen“** ist Lena auf jedem Bildschirm einen Klick entfernt und kennt die Unterlagen des Fachs, in dem du gerade bist (im Hauptmenü alle Unterlagen, am Mac auch mit ⌘K). Antworten enthalten Links wie „📄 skript.pdf · S. 12“, die direkt zur markierten Stelle im Skript springen. Lena kann dich auch abfragen („Frag mich ab!“).
 

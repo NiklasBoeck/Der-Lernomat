@@ -2,6 +2,7 @@
 import { db, uid, requestPersistence } from './db.js';
 import { icon, toast, openModal, confirmDialog, relDate, shuffle, getTheme, setTheme, applyTheme } from './ui.js';
 import { renderPdf, renderText } from './viewer.js';
+import { readerTop, attachReader, readPos, wantCols } from './reader.js';
 import { esc, renderMarkdown } from './markdown.js';
 import { playIntro, unlock, audioUnlocked, sfx, soundEnabled, setSoundEnabled, sayHello, stopSpeaking } from './audio.js';
 import { ingestFile, filesToBlocks, fileBadge, formatSize, totalSize, CATEGORIES, ACCEPT } from './files.js';
@@ -590,7 +591,7 @@ async function viewSubject({ id }) {
     <div class="section-title"><h2>Unterlagen</h2><button class="btn small" data-act="add">${icon('plus')} Hinzufügen</button></div>
     ${files.length ? `<div class="list">${files.map(f => `<div class="row">
         <span class="ico">${fileBadge(f)}</span>
-        <button class="main" data-act="viewFile" data-id="${f.id}" style="text-align:left"><b>${esc(f.name)}</b><span>Ansehen · ${formatSize(f.size)}</span></button>
+        <button class="main" data-act="viewFile" data-id="${f.id}" style="text-align:left"><b>${esc(f.name)}</b><span>${readLine(f)}${formatSize(f.size)}</span></button>
         <select data-file="${f.id}" aria-label="Art der Datei">${CATEGORIES.map(c => `<option ${c === f.category ? 'selected' : ''}>${c}</option>`).join('')}</select>
         <button class="icon-btn plain" data-act="delFile" data-id="${f.id}" aria-label="Löschen" style="color:var(--bad)">${icon('trash')}</button>
       </div>`).join('')}</div>` : ''}
@@ -1311,6 +1312,12 @@ function viewPlan(set, subj) {
 }
 
 // ===== Skript ansehen =====
+function readLine(f) {
+  const pos = f.kind === 'pdf' ? readPos(f.id) : null;
+  if (!pos || pos.page <= 1) return 'Ansehen · ';
+  return pos.page >= pos.total ? `Fertig gelesen ✓ · ` : `Weiterlesen auf Seite ${pos.page} von ${pos.total} · `;
+}
+
 let fileCtl = null;
 let fileCtlId = null;
 
@@ -1329,7 +1336,12 @@ async function viewFile({ id, page, q, char }, alive) {
   const subj = await db.get('subjects', f.subjectId);
   let pageInfo = '';
   let curPage = null;
-  app.innerHTML = `<div class="screen viewer-screen">
+  const isPdf = f.kind === 'pdf';
+  app.innerHTML = isPdf ? `<div class="screen viewer-screen reader-screen">
+    ${readerTop(f)}
+    <div id="hitInfo" class="notice" hidden></div>
+    <div id="doc" class="doc-area"><div class="thinking"><div class="orb"></div><p>Skript wird geladen …</p></div></div>
+  </div>` : `<div class="screen viewer-screen">
     ${topbar({ crumb: `${subj?.emoji || ''} ${esc(subj?.name || '')}`, right: `<button class="icon-btn" data-act="download" aria-label="Datei öffnen">${icon('share')}</button>` })}
     <div class="viewer-head"><h2>${esc(f.name)}</h2><span class="muted" id="pageInfo"></span></div>
     ${f.kind !== 'image' ? `<form class="viewer-search" id="vSearch"><input class="input" id="vTerm" type="search" placeholder="Im Skript suchen …" enterkeyhint="search"><button class="btn small" type="submit">Suchen</button></form>` : ''}
@@ -1361,9 +1373,13 @@ async function viewFile({ id, page, q, char }, alive) {
     },
   };
   let ctl;
+  let reader = null;
   try {
-    if (f.kind === 'pdf') {
-      ctl = await renderPdf(docEl, f.blob, { onPage: (n, total) => { pageInfo = `Seite ${n}`; curPage = n; info.textContent = `Seite ${n} von ${total}`; } });
+    if (isPdf) {
+      ctl = await renderPdf(docEl, f.blob, {
+        colsFor: wantCols,
+        onPage: (n, total) => { pageInfo = `Seite ${n}`; curPage = n; info.textContent = `Seite ${n} von ${total}`; reader?.page(n, total); },
+      });
     } else if (f.kind === 'image') {
       const url = URL.createObjectURL(f.blob);
       docEl.innerHTML = `<img class="doc-img" src="${url}" alt="${esc(f.name)}">`;
@@ -1379,6 +1395,11 @@ async function viewFile({ id, page, q, char }, alive) {
     return;
   }
   if (!alive()) { ctl.destroy(); return; }
+  if (isPdf) {
+    reader = attachReader({ docEl, ctl, fileId: f.id });
+    cleanups.push(() => reader.destroy());
+    reader.page(ctl.page, ctl.pages);
+  }
   fileCtlId = id;
   const jump = async p => {
     const ok = f.kind === 'pdf' ? await ctl.goTo(p.page || 1, p.q) : ctl.goTo(p.q, p.char);
@@ -1394,6 +1415,14 @@ async function viewFile({ id, page, q, char }, alive) {
     if (!ok) toast(`„${term}“ nicht gefunden`);
   });
   if (page || q || char != null) await jump({ page, q, char });
+  else if (isPdf) {
+    // Dort weiterlesen, wo man zuletzt aufgehört hat.
+    const pos = readPos(f.id);
+    if (pos?.page > 1 && pos.page <= ctl.pages) {
+      await ctl.goTo(pos.page);
+      toast(`Weiter auf Seite ${pos.page}`);
+    }
+  }
 }
 
 // ===== Einstellungen =====
@@ -1412,7 +1441,7 @@ function usageLine() {
 async function viewSettings() {
   const s = AI.getSettings();
   app.innerHTML = `<div class="screen">${topbar({ crumb: 'Hauptmenü' })}
-    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 16</p></section>
+    <section class="hero"><h1>Einstellungen</h1><p class="muted" style="margin:4px 0 0">Version 17</p></section>
     ${CLOUD_AI ? '' : `<div class="card">
       <h2 style="font-size:18px;margin-bottom:6px">🦉 Lena, deine Lernassistentin</h2>
       <p class="muted" style="margin-top:0;font-size:15px">Lena arbeitet direkt auf deinem Gerät: kostenlos für alle, ohne Konto, ohne Schlüssel und auch offline. Sie liest PDFs, Word, PowerPoint, Texte und sogar Fotos und eingescannte Seiten. Deine Dateien verlassen dein Gerät nie.</p>
